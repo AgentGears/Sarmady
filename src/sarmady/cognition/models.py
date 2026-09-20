@@ -5,12 +5,24 @@ from datetime import datetime
 from uuid import UUID
 
 
+def _require_aware(value: datetime, field_name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+
+
 @dataclass(frozen=True, slots=True)
 class CognitiveRequest:
     id: UUID
+    agent_id: UUID
     context_projection_id: UUID
     operation: str
+    created_at: datetime
     reasoning_policy_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.operation.strip():
+            raise ValueError("operation is required")
+        _require_aware(self.created_at, "created_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,17 +32,30 @@ class ModelInvocation:
     model_binding: str
     started_at: datetime
     completed_at: datetime | None = None
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.model_binding.strip():
+            raise ValueError("model_binding is required")
+        _require_aware(self.started_at, "started_at")
+        if self.completed_at is not None:
+            _require_aware(self.completed_at, "completed_at")
+            if self.completed_at < self.started_at:
+                raise ValueError("completed_at cannot precede started_at")
 
 
 @dataclass(frozen=True, slots=True)
 class GeneratedArtifact:
-    """Non-authoritative output from cognitive compute."""
-
     id: UUID
     invocation_id: UUID
     artifact_kind: str
     content: str
     created_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.artifact_kind.strip():
+            raise ValueError("artifact_kind is required")
+        _require_aware(self.created_at, "created_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +78,6 @@ class ChoiceResult:
 
 @dataclass(frozen=True, slots=True)
 class DecisionRecord:
-    """A durable adopted decision, distinct from any model-produced artifact."""
-
     id: UUID
     decision_kind: str
     selected: str
