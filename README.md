@@ -26,9 +26,10 @@ The current executable slice now proves:
 - stale-context fencing immediately before model invocation;
 - immutable, versioned `DIRECT` / `COMPACT` / `FULL` reasoning-policy contracts with source provenance and fingerprints;
 - structured reasoning policy delivery to model adapters without making provider prompts canonical state;
-- typed multi-key context coverage with explicit `COMPLETE` / `PARTIAL` / `INSUFFICIENT` sufficiency and contradiction closure.
+- typed multi-key context coverage with explicit `COMPLETE` / `PARTIAL` / `INSUFFICIENT` sufficiency and contradiction closure;
+- deterministic snapshot-bound lexical candidate discovery that preserves relevance ≠ sufficiency and retrieval ≠ memory strengthening.
 
-Semantic/lexical candidate generation, general entity resolution/extraction, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
+Semantic embedding/vector retrieval, general entity resolution/extraction, automatic natural-language-to-requirement planning, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
 
 ## Source lineage
 
@@ -66,4 +67,4 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, and `docs/code-survival.md` before adding runtime behavior.
+See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, `docs/context-retrieval.md`, and `docs/code-survival.md` before adding runtime behavior.
