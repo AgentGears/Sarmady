@@ -17,6 +17,7 @@ from sarmady.memory import (
     MemoryLifecycleEvent,
     MemoryLifecycleEventKind,
 )
+from sarmady.values import thaw_value
 
 from ._codec import claim_from_row, iso, relation_from_row
 from .resolution import HEAD_MOVING_RELATIONS, rebuild_claim_heads, resolve_state
@@ -121,7 +122,7 @@ class EpistemicStoreMixin:
                     event.kind,
                     iso(event.occurred_at),
                     iso(event.recorded_at),
-                    json.dumps(dict(event.payload), sort_keys=True),
+                    json.dumps(thaw_value(event.payload), sort_keys=True),
                 ),
             )
             self._log("Event", event.id, event.recorded_at)
@@ -144,7 +145,7 @@ class EpistemicStoreMixin:
                     str(claim.id),
                     claim.subject,
                     claim.predicate,
-                    json.dumps(claim.value, sort_keys=True),
+                    json.dumps(thaw_value(claim.value), sort_keys=True),
                     iso(claim.recorded_at),
                     json.dumps([str(ref) for ref in claim.evidence_refs]),
                     iso(claim.valid_from),
@@ -207,8 +208,6 @@ class EpistemicStoreMixin:
                 (self.epistemic_dependency_key(claim.subject, claim.predicate),),
                 reason="epistemic-state-changed",
             )
-
-    # --- Epistemic reads and reconstruction ---------------------------------
 
     def current_claim(self, subject: str, predicate: str) -> Claim | None:
         row = self.db.execute(
