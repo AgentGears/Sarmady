@@ -5,10 +5,12 @@ from uuid import uuid4
 
 import pytest
 
+from sarmady.context import ContextRequest
 from sarmady.epistemic import Claim, Evidence, Event
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.memory import MemoryEntry, MemoryKind
 from sarmady.storage.sqlite import SQLiteCanonicalStore
+from sarmady.values import FrozenMapping
 
 
 T0 = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
@@ -21,6 +23,28 @@ class _MutableValue:
 def test_canonical_value_boundary_rejects_non_json_mutables() -> None:
     with pytest.raises(TypeError, match="JSON-compatible"):
         Claim(uuid4(), "subject", "predicate", _MutableValue(), T0)
+
+
+def test_unbound_dict_mutators_cannot_bypass_frozen_mapping() -> None:
+    claim = Claim(uuid4(), "subject", "predicate", {"value": 1}, T0)
+    assert isinstance(claim.value, FrozenMapping)
+    with pytest.raises(TypeError):
+        dict.__setitem__(claim.value, "value", 2)
+    assert claim.value["value"] == 1
+
+
+def test_preconstructed_frozen_mapping_detaches_mutable_descendants() -> None:
+    original = ["before"]
+    wrapped = FrozenMapping({"items": original})
+    claim = Claim(uuid4(), "subject", "predicate", wrapped, T0)
+
+    original.append("after")
+    assert claim.value["items"] == ("before",)
+
+
+def test_new_context_request_still_requires_positive_latency_budget() -> None:
+    with pytest.raises(ValueError, match="latency_budget_ms must be positive"):
+        ContextRequest(uuid4(), "new request", 512, latency_budget_ms=-1)
 
 
 def test_claim_cannot_reference_evidence_learned_after_claim_admission(tmp_path) -> None:
