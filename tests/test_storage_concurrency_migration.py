@@ -45,6 +45,7 @@ def test_read_snapshot_cannot_mix_frontier_with_newer_concurrent_state(tmp_path)
                 relation_kind=ClaimRelationKind.SUPERSEDES,
             )
 
+            # The reader is still pinned to the snapshot established at frontier.
             during = reader.current_claim("machine:primary", "memory_gb")
             assert during is not None and during.value == 64
             assert reader.frontier() == frontier
@@ -97,6 +98,7 @@ def test_stale_writer_cannot_commit_revision_against_obsolete_head(tmp_path) -> 
     with SQLiteCanonicalStore(path) as store:
         claim_64 = _seed(store)
 
+        # Build a revision proposal against C1 but intentionally delay commit.
         stale_event = Event(
             uuid4(),
             "OBSERVATION",
@@ -134,6 +136,7 @@ def test_stale_writer_cannot_commit_revision_against_obsolete_head(tmp_path) -> 
             T0 + timedelta(hours=2),
         )
 
+        # Another writer advances the head first.
         winning = EpistemicMemoryService(store).observe_claim(
             subject="machine:primary",
             predicate="memory_gb",
@@ -171,3 +174,76 @@ def test_record_time_cannot_precede_observation_time(tmp_path) -> None:
                 observed_at=T0 + timedelta(minutes=1),
                 recorded_at=T0,
             )
+
+
+def test_snapshot_frontier_cannot_label_unpinned_current_state(tmp_path) -> None:
+    path = tmp_path / "sarmady.db"
+    with SQLiteCanonicalStore(path) as store:
+        _seed(store)
+        old_frontier = store.frontier()
+        EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=96,
+            source_ref="user:upgrade",
+            observed_at=T0 + timedelta(hours=1),
+            recorded_at=T0 + timedelta(hours=1),
+            valid_from=T0 + timedelta(hours=1),
+            relation_kind=ClaimRelationKind.SUPERSEDES,
+        )
+
+        with pytest.raises(RuntimeError, match="pinned transaction"):
+            store.resolved_state(
+                "machine:primary",
+                "memory_gb",
+                snapshot_frontier=old_frontier,
+            )
+
+        with store.read_snapshot() as frontier:
+            with pytest.raises(RuntimeError, match="does not match"):
+                store.resolved_state(
+                    "machine:primary",
+                    "memory_gb",
+                    snapshot_frontier=frontier - 1,
+                )
+
+
+def test_backdated_revision_cannot_create_impossible_knowledge_lineage(tmp_path) -> None:
+    path = tmp_path / "sarmady.db"
+    with SQLiteCanonicalStore(path) as store:
+        first = EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=64,
+            source_ref="user:statement",
+            observed_at=T0 + timedelta(hours=1),
+            recorded_at=T0 + timedelta(hours=1),
+            valid_from=T0,
+        )
+
+        with pytest.raises(ValueError, match="cannot precede the locked current claim"):
+            EpistemicMemoryService(store).observe_claim(
+                subject="machine:primary",
+                predicate="memory_gb",
+                value=96,
+                source_ref="backdated-correction",
+                observed_at=T0,
+                recorded_at=T0,
+                valid_from=T0,
+                relation_kind=ClaimRelationKind.SUPERSEDES,
+            )
+
+        current = store.current_claim("machine:primary", "memory_gb")
+        assert current is not None and current.id == first.id
+        assert [claim.id for claim in store.claim_history("machine:primary", "memory_gb")] == [first.id]
+
+
+def test_event_contract_rejects_recording_before_occurrence() -> None:
+    with pytest.raises(ValueError, match="cannot precede occurred_at"):
+        Event(
+            uuid4(),
+            "OBSERVATION",
+            T0 + timedelta(minutes=1),
+            T0,
+            {},
+        )

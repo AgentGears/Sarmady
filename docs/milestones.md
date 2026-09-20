@@ -18,7 +18,8 @@ Completed slices:
 - persist memory lifecycle events with `SEEN != USED` semantics and rebuild lifecycle materialization;
 - pin context reads to a transactionally consistent SQLite snapshot;
 - track context dependencies and invalidate stale projections after relevant epistemic or lifecycle changes;
-- exercise concurrent reader/writer snapshot behavior and legacy schema upgrade.
+- exercise concurrent reader/writer snapshot behavior and legacy schema upgrade;
+- prevent forged snapshot labels and reject backdated revisions that would create impossible knowledge-time lineages.
 
 Still deferred within/after M1:
 

@@ -12,7 +12,7 @@ A claim has a knowledge/record time and may have world-valid bounds.
 
 Using both means: "given only what we knew by `K`, what would we say was valid at world time `V`?"
 
-The two queries must not be silently substituted for one another.
+The two queries must not be silently substituted for one another. Knowledge time is monotonic along an adopted revision lineage: a new relation to the locked current head may not be backdated before that head's `recorded_at`. This prevents later writes from manufacturing impossible historical knowledge states.
 
 ## Revision and contradiction
 
@@ -37,6 +37,8 @@ Retrieval exposure (`SEEN`) does not strengthen, restore, or otherwise change me
 ## Context snapshots
 
 The exact M1 compiler is intentionally not a semantic retriever. It resolves one exact `(subject, predicate)` key inside a pinned read snapshot.
+
+A caller may not attach an arbitrary `snapshot_frontier` to an unpinned read. Explicit frontiers are accepted only while a transaction is active and only when the frontier equals the transaction's pinned snapshot.
 
 Each projection records dependencies on:
 

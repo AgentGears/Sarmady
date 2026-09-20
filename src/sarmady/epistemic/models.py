@@ -39,6 +39,8 @@ class Event:
             raise ValueError("kind is required")
         _require_aware(self.occurred_at, "occurred_at")
         _require_aware(self.recorded_at, "recorded_at")
+        if self.recorded_at < self.occurred_at:
+            raise ValueError("recorded_at cannot precede occurred_at")
 
 
 @dataclass(frozen=True, slots=True)
