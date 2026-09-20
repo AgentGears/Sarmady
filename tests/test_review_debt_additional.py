@@ -43,6 +43,20 @@ def test_canonical_value_boundary_rejects_non_json_mutables() -> None:
         Claim(uuid4(), "subject", "predicate", _MutableValue(), T0)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        {"nested": [1, float("nan")]},
+    ],
+)
+def test_canonical_value_boundary_rejects_nonfinite_floats(value) -> None:
+    with pytest.raises(ValueError, match="float values must be finite"):
+        Claim(uuid4(), "subject", "predicate", value, T0)
+
+
 def test_unbound_dict_mutators_cannot_bypass_frozen_mapping() -> None:
     claim = Claim(uuid4(), "subject", "predicate", {"value": 1}, T0)
     assert isinstance(claim.value, FrozenMapping)
