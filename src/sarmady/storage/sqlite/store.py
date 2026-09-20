@@ -45,21 +45,34 @@ class _ContextDependencyCapture:
         )
 
     def claim(self, claim_id: UUID):
-        return self._store.claim(claim_id)
+        claim = self._store.claim(claim_id)
+        if claim is None:
+            # Absence is itself context state. Claim IDs are immutable once
+            # present, but a missing ID can become present after this snapshot.
+            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+        return claim
 
     def evidence(self, evidence_id: UUID):
-        return self._store.evidence(evidence_id)
+        evidence = self._store.evidence(evidence_id)
+        if evidence is None:
+            # As with claims, a negative lookup must not be treated as timeless.
+            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+        return evidence
 
     def memory_entry_for_target(self, target_type: str, target_id: UUID):
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
             self._keys.add(self._store.memory_dependency_key(entry.id))
+        else:
+            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
         return entry
 
     def is_active_memory_target(self, target_type: str, target_id: UUID) -> bool:
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
             self._keys.add(self._store.memory_dependency_key(entry.id))
+        else:
+            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
         return self._store.is_active_memory_target(target_type, target_id)
 
     @property
