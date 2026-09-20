@@ -101,6 +101,18 @@ class EpistemicStoreMixin:
                     raise ValueError(
                         f"claim references evidence captured after claim admission: {ref}"
                     )
+                referenced_event = self.db.execute(
+                    "SELECT recorded_at FROM events WHERE id = ?",
+                    (str(referenced_evidence.event_id),),
+                ).fetchone()
+                if referenced_event is None:
+                    raise ValueError(
+                        f"evidence references unknown event {referenced_evidence.event_id}"
+                    )
+                if datetime.fromisoformat(referenced_event["recorded_at"]) > claim.recorded_at:
+                    raise ValueError(
+                        f"claim references evidence learned after claim admission: {ref}"
+                    )
 
             self.db.execute(
                 "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
@@ -268,8 +280,6 @@ class EpistemicStoreMixin:
         valid_at: datetime | None = None,
         snapshot_frontier: int | None = None,
     ) -> ResolvedState:
-        # Public calls get a real read snapshot automatically. The compiler can
-        # pass the already-pinned frontier to avoid nesting transactions.
         if snapshot_frontier is None and not self.db.in_transaction:
             with self.read_snapshot() as frontier:
                 return resolve_state(
