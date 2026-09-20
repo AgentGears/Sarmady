@@ -21,7 +21,7 @@ semantic admission
 ContextRequest
      |
 Context Engine
- resolve exact obligations · coverage control
+ candidate discovery · resolve exact obligations · coverage control
      v
 ContextProjection (immutable snapshot)
      |
@@ -51,7 +51,7 @@ EffectEvidence
 
 ## Logical planes
 
-The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** compiles a bounded working set from canonical and materialized state. Coverage is an explicit sufficiency contract: candidate relevance alone cannot mark a projection complete, and multi-key requirements are resolved inside one pinned snapshot. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
+The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** discovers candidate semantic keys and compiles a bounded working set from canonical and materialized state. Candidate discovery is derived relevance computation, not semantic admission and not proof of sufficiency. Coverage is an explicit sufficiency contract: candidate relevance alone cannot mark a projection complete, and multi-key requirements are resolved inside one pinned snapshot. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
 
 These are logical responsibilities, not mandatory microservices. A deployment may combine them in one process while preserving their contracts.
 
@@ -65,11 +65,15 @@ In M1:
 - `memory_entries.lifecycle` is rebuilt from canonical memory lifecycle events;
 - projection staleness/dependency indexes are disposable derived state.
 
+Candidate sets are also derived state. The current lexical generator returns them as immutable ephemeral snapshot-bound values; they are not canonical truth and are not persisted by the kernel.
+
 A materialization must never become the only surviving source of a semantic fact.
 
 ## Snapshot discipline
 
 A context compiler must not read a frontier and then accidentally mix in later state. SQLite M1 uses an explicit WAL read transaction: the first frontier read pins the database snapshot, all claim/evidence/memory reads occur inside that snapshot, and only then is the immutable projection emitted.
+
+Candidate discovery follows the same discipline. Semantic-key enumeration, temporal resolution, claim reads, and memory gating happen inside one `context_read_snapshot()`. Because enumerating the entire visible key space depends on absence as well as presence, the capture records the conservative `semantic:*` dependency; a later semantic write may introduce a new candidate that did not exist at the captured frontier.
 
 Projection registration occurs after the read transaction. The registration boundary binds the durable `snapshot_id` to the canonical SQLite frontier and, for captured lineage, verifies that projected items were successfully read inside that pinned snapshot. If the semantic frontier advances in the handoff window, proven dependency lineage distinguishes relevant changes from unrelated ones: a changed recorded dependency stales the projection, while an unrelated semantic write does not. A projection without proven lineage may register only at the current frontier and receives the conservative `semantic:*` dependency so any later semantic mutation invalidates it.
 
@@ -85,4 +89,4 @@ Freshness is fenced twice: when the cognitive request is admitted and again unde
 
 ## Storage independence
 
-The ontology is not the database schema. SQLite is the first implementation. Schema v5 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.
+The ontology is not the database schema. SQLite is the first implementation. Schema v6 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.
