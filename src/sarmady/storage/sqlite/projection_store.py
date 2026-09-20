@@ -104,7 +104,13 @@ class ProjectionStoreMixin:
                 ),
             )
             changed_dependencies = self._dependency_keys_changed_since(canonical_frontier)
-            stale = bool(effective_dependencies & changed_dependencies)
+            wildcard_changed = (
+                _UNPROVEN_CONTEXT_DEPENDENCY in effective_dependencies
+                and canonical_frontier < current_frontier
+            )
+            stale = wildcard_changed or bool(
+                effective_dependencies & changed_dependencies
+            )
             persisted_request = self.context_request(request.id)
             if persisted_request != request:
                 raise ValueError(
