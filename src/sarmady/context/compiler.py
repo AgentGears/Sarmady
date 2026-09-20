@@ -139,13 +139,8 @@ class ExactContextCompiler:
             )
 
         self.store.register_context_projection(
-            projection_id=projection.id,
-            request_id=projection.request_id,
-            snapshot_id=projection.snapshot_id,
-            canonical_frontier=int(projection.canonical_frontier),
-            manifest_digest=projection.manifest_digest,
-            compiler_version=projection.compiler_version,
-            coverage_status=projection.coverage_status.value,
+            projection,
+            request=request,
             dependency_keys=tuple(dependency_keys),
         )
         return projection

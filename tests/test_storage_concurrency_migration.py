@@ -54,7 +54,8 @@ def test_read_snapshot_cannot_mix_frontier_with_newer_concurrent_state(tmp_path)
         assert after is not None and after.value == 96
 
 
-def test_legacy_memory_admission_gets_created_event_during_schema_v2_upgrade(tmp_path) -> None:
+
+def test_legacy_memory_admission_gets_created_event_during_schema_v3_upgrade(tmp_path) -> None:
     path = tmp_path / "legacy.db"
     memory_id = uuid4()
     target_id = uuid4()
@@ -81,16 +82,18 @@ def test_legacy_memory_admission_gets_created_event_during_schema_v2_upgrade(tmp
         "INSERT INTO memory_entries VALUES (?, 'Claim', ?, 'SEMANTIC', ?, 'ACTIVE')",
         (str(memory_id), str(target_id), T0.isoformat()),
     )
+    db.execute("PRAGMA user_version = 2")
     db.commit()
     db.close()
 
     with SQLiteCanonicalStore(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
         events = store.memory_lifecycle_events(memory_id)
         assert len(events) == 1
         assert events[0].event_kind is MemoryLifecycleEventKind.CREATED
         assert events[0].source == "schema-migration-v2"
         assert store.rebuild_memory_lifecycle_states() == 1
+
 
 
 def test_stale_writer_cannot_commit_revision_against_obsolete_head(tmp_path) -> None:
@@ -160,6 +163,7 @@ def test_stale_writer_cannot_commit_revision_against_obsolete_head(tmp_path) -> 
         assert current is not None and current.id == winning.id
         assert store.claim(stale_claim.id) is None
         assert store.evidence(stale_evidence.id) is None
+
 
 
 def test_record_time_cannot_precede_observation_time(tmp_path) -> None:

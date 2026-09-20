@@ -4,7 +4,7 @@
 
 Canonical Ontology v0.1, constitutional invariants, initial immutable contracts, source-lineage survival map, packaging, and CI.
 
-## M1 — Persistent cognition — in progress
+## M1 — Persistent cognition — complete
 
 Completed slices:
 
@@ -13,26 +13,31 @@ Completed slices:
 - compile an immutable context projection pinned to a canonical frontier;
 - admit correction/supersession as new claims without deleting old evidence;
 - distinguish knowledge/record time from world-valid time;
-- reconstruct current heads from canonical history after materialization loss;
+- reconstruct current heads from canonical history after materialized-state loss;
 - represent explicit contradiction as contested state and carry counterevidence into context;
 - persist memory lifecycle events with `SEEN != USED` semantics and rebuild lifecycle materialization;
 - pin context reads to a transactionally consistent SQLite snapshot;
 - track context dependencies and invalidate stale projections after relevant epistemic or lifecycle changes;
 - exercise concurrent reader/writer snapshot behavior and legacy schema upgrade;
-- prevent forged snapshot labels and reject backdated revisions that would create impossible knowledge-time lineages.
+- prevent forged snapshot labels and reject backdated revisions that would create impossible knowledge-time lineages;
+- persist `Agent` identity independently of model/provider bindings;
+- persist and rehydrate full context requests/projections across process restart;
+- execute provider-neutral model adapters while persisting cognitive requests, invocation attempts, failures, and generated artifacts;
+- swap model bindings across restart without changing agent identity, canonical memory, or epistemic state;
+- revalidate projection freshness immediately before invocation start.
 
-Still deferred within/after M1:
+Deferred to later milestones:
 
-- model adapter and model-swap continuity;
 - general entity resolution and extraction;
 - semantic/lexical retrieval and adaptive coverage expansion;
+- reasoning-policy execution and cognitive routing;
 - scheduled future-valid claim activation.
 
 The exact compiler remains deliberate: retrieval intelligence must not hide persistence, temporal, conflict, or recovery defects.
 
 ## M2 — Cognitive orchestration
 
-Reasoning policies, model adapters, cognitive routing experiments, iterative context requests, and coverage expansion.
+Reasoning-policy execution, cognitive routing experiments, iterative context requests, semantic/lexical retrieval, and adaptive coverage expansion. Provider-specific model adapters may be added here without changing the M1 runtime contract.
 
 ## M3 — Governed action
 

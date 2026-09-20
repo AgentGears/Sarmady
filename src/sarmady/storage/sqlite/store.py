@@ -8,13 +8,15 @@ from typing import Iterator
 from uuid import UUID
 
 from ._codec import iso
+from .cognitive_store import CognitiveStoreMixin
 from .epistemic_store import EpistemicStoreMixin
+from .identity_store import IdentityStoreMixin
 from .memory_store import MemoryStoreMixin
 from .projection_store import ProjectionStoreMixin
 from .schema import initialize_schema
 
 
-class SQLiteCanonicalStore(EpistemicStoreMixin, MemoryStoreMixin, ProjectionStoreMixin):
+class SQLiteCanonicalStore(IdentityStoreMixin, EpistemicStoreMixin, MemoryStoreMixin, ProjectionStoreMixin, CognitiveStoreMixin):
     """SQLite adapter for Sarmady's canonical M1 semantic state."""
 
     def __init__(self, path: str | Path):

@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Callable, Mapping, Protocol
+from uuid import UUID, uuid4
+
+from sarmady.cognition import CognitiveRequest, GeneratedArtifact, ModelInvocation
+from sarmady.context import ContextProjection
+from sarmady.storage.sqlite import SQLiteCanonicalStore
+
+
+@dataclass(frozen=True, slots=True)
+class ModelContextItem:
+    ref_type: str
+    ref_id: UUID
+    role: str
+    payload: Mapping[str, Any]
+    provenance_refs: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ModelInput:
+    agent_id: UUID
+    cognitive_request_id: UUID
+    context_projection_id: UUID
+    snapshot_id: str
+    operation: str
+    reasoning_policy_id: str | None
+    items: tuple[ModelContextItem, ...]
+    conflict_refs: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ModelResponse:
+    artifact_kind: str
+    content: str
+
+    def __post_init__(self) -> None:
+        if not self.artifact_kind.strip():
+            raise ValueError("artifact_kind is required")
+
+
+class ModelAdapter(Protocol):
+    @property
+    def binding_id(self) -> str: ...
+
+    def invoke(self, model_input: ModelInput) -> ModelResponse: ...
+
+
+class CognitiveRuntime:
+    """Provider-neutral cognitive execution over persisted semantic context."""
+
+    def __init__(
+        self,
+        store: SQLiteCanonicalStore,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.store = store
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def invoke(
+        self,
+        *,
+        agent_id: UUID,
+        context_projection_id: UUID,
+        operation: str,
+        adapter: ModelAdapter,
+        reasoning_policy_id: str | None = None,
+    ) -> GeneratedArtifact:
+        if not adapter.binding_id.strip():
+            raise ValueError("adapter binding_id is required")
+
+        request = CognitiveRequest(
+            id=uuid4(),
+            agent_id=agent_id,
+            context_projection_id=context_projection_id,
+            operation=operation,
+            created_at=self.clock(),
+            reasoning_policy_id=reasoning_policy_id,
+        )
+        self.store.create_cognitive_request(request)
+        projection = self.store.context_projection(context_projection_id)
+        if projection is None:
+            raise RuntimeError("persisted context projection disappeared")
+        model_input = self._materialize_input(request, projection)
+
+        started_at = self.clock()
+        invocation = ModelInvocation(
+            id=uuid4(),
+            cognitive_request_id=request.id,
+            model_binding=adapter.binding_id,
+            started_at=started_at,
+        )
+        self.store.start_model_invocation(invocation)
+
+        try:
+            response = adapter.invoke(model_input)
+            if not isinstance(response, ModelResponse):
+                raise TypeError("model adapter must return ModelResponse")
+
+            created_at = self.clock()
+            artifact = GeneratedArtifact(
+                id=uuid4(),
+                invocation_id=invocation.id,
+                artifact_kind=response.artifact_kind,
+                content=response.content,
+                created_at=created_at,
+            )
+            completed_at = self.clock()
+            self.store.complete_model_invocation(
+                invocation.id,
+                artifact,
+                completed_at=completed_at,
+            )
+            return artifact
+        except Exception as exc:
+            current = self.store.invocation(invocation.id)
+            if current is not None and current.completed_at is None:
+                self.store.fail_model_invocation(
+                    invocation.id,
+                    completed_at=self.clock(),
+                    error_code=f"adapter-error:{type(exc).__name__}",
+                )
+            raise
+
+    def _materialize_input(
+        self,
+        request: CognitiveRequest,
+        projection: ContextProjection,
+    ) -> ModelInput:
+        items: list[ModelContextItem] = []
+        for item in projection.items:
+            if item.ref_type == "Claim":
+                claim = self.store.claim(item.ref_id)
+                if claim is None:
+                    raise RuntimeError(f"projection references missing claim {item.ref_id}")
+                payload = {
+                    "subject": claim.subject,
+                    "predicate": claim.predicate,
+                    "value": claim.value,
+                    "recorded_at": claim.recorded_at.isoformat(),
+                    "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
+                    "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
+                }
+            elif item.ref_type == "Evidence":
+                evidence = self.store.evidence(item.ref_id)
+                if evidence is None:
+                    raise RuntimeError(
+                        f"projection references missing evidence {item.ref_id}"
+                    )
+                payload = {
+                    "source_ref": evidence.source_ref,
+                    "captured_at": evidence.captured_at.isoformat(),
+                    "digest": evidence.digest,
+                }
+            else:
+                raise RuntimeError(
+                    f"unsupported context item type for model input: {item.ref_type}"
+                )
+
+            items.append(
+                ModelContextItem(
+                    ref_type=item.ref_type,
+                    ref_id=item.ref_id,
+                    role=item.role,
+                    payload=payload,
+                    provenance_refs=item.provenance_refs,
+                )
+            )
+
+        return ModelInput(
+            agent_id=request.agent_id,
+            cognitive_request_id=request.id,
+            context_projection_id=projection.id,
+            snapshot_id=projection.snapshot_id,
+            operation=request.operation,
+            reasoning_policy_id=request.reasoning_policy_id,
+            items=tuple(items),
+            conflict_refs=projection.conflict_refs,
+        )

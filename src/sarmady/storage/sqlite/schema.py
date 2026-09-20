@@ -6,17 +6,19 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
         )
 
+    # v0-v2 databases can be upgraded in place because v3 only adds tables
+    # and indexes; existing canonical columns retain their semantics.
     db.executescript(
         f"""
         CREATE TABLE IF NOT EXISTS semantic_log (
@@ -97,6 +99,18 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_entry
             ON memory_lifecycle_events(memory_entry_id, occurred_at);
 
+        CREATE TABLE IF NOT EXISTS context_requests (
+            id TEXT PRIMARY KEY,
+            query TEXT NOT NULL,
+            token_budget INTEGER NOT NULL CHECK(token_budget > 0),
+            latency_budget_ms INTEGER,
+            goal_ref TEXT,
+            task_ref TEXT,
+            coverage_requirements_json TEXT NOT NULL,
+            known_at TEXT,
+            valid_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS context_projections (
             id TEXT PRIMARY KEY,
             request_id TEXT NOT NULL,
@@ -119,6 +133,63 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_projection_dependency_key
             ON context_projection_dependencies(dependency_key);
 
+        CREATE TABLE IF NOT EXISTS context_projection_details (
+            projection_id TEXT PRIMARY KEY
+                REFERENCES context_projections(id) ON DELETE CASCADE,
+            conflict_refs_json TEXT NOT NULL,
+            unresolved_gaps_json TEXT NOT NULL,
+            omitted_refs_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS context_projection_items (
+            projection_id TEXT NOT NULL
+                REFERENCES context_projections(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL,
+            ref_type TEXT NOT NULL,
+            ref_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            provenance_refs_json TEXT NOT NULL,
+            PRIMARY KEY(projection_id, ordinal)
+        );
+
+        CREATE TABLE IF NOT EXISTS agents (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS cognitive_requests (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL REFERENCES agents(id),
+            context_projection_id TEXT NOT NULL REFERENCES context_projections(id),
+            operation TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            reasoning_policy_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cognitive_requests_agent
+            ON cognitive_requests(agent_id);
+
+        CREATE TABLE IF NOT EXISTS model_invocations (
+            id TEXT PRIMARY KEY,
+            cognitive_request_id TEXT NOT NULL REFERENCES cognitive_requests(id),
+            model_binding TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            error_code TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_model_invocations_request
+            ON model_invocations(cognitive_request_id);
+
+        CREATE TABLE IF NOT EXISTS generated_artifacts (
+            id TEXT PRIMARY KEY,
+            invocation_id TEXT NOT NULL REFERENCES model_invocations(id),
+            artifact_kind TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_generated_artifacts_invocation
+            ON generated_artifacts(invocation_id);
+
         PRAGMA user_version = {SCHEMA_VERSION};
         """
     )
@@ -126,6 +197,8 @@ def initialize_schema(db: sqlite3.Connection) -> None:
 
 
 def _backfill_legacy_memory_created_events(db: sqlite3.Connection) -> None:
+    """Give pre-v2 memory admissions an explicit canonical CREATED event."""
+
     rows = db.execute(
         """
         SELECT m.id, m.created_at

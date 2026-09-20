@@ -6,7 +6,7 @@ The project separates **canonical semantic state** from **derived cognitive comp
 
 ## Status
 
-Sarmady is at **Canonical Ontology v0.1 / M1 persistent cognition in progress**.
+Sarmady is at **Canonical Ontology v0.1 / M1 persistent cognition complete**.
 
 The current executable slice now proves:
 
@@ -18,9 +18,14 @@ The current executable slice now proves:
 - append-only memory lifecycle telemetry with `SEEN != USED`;
 - transactionally pinned SQLite read snapshots;
 - dependency-aware context-projection invalidation;
-- store close/reopen recovery.
+- store close/reopen recovery;
+- durable agent identity independent of model binding;
+- full context-request/projection rehydration across restart;
+- provider-neutral model adapters with durable invocation/artifact records;
+- model-swap continuity over the same persisted semantic context;
+- stale-context fencing immediately before model invocation.
 
-Semantic retrieval, entity resolution, general extraction, LLM invocation, reasoning routing, and external action execution remain deliberately outside this slice.
+Semantic/lexical retrieval, general entity resolution/extraction, adaptive coverage planning, reasoning routing, and external action execution remain deliberately outside M1. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
 
 ## Source lineage
 
