@@ -11,7 +11,7 @@ from sarmady.cognition import (
     ModelInvocation,
     ReasoningPolicy,
 )
-from sarmady.context import ContextProjection
+from sarmady.context import ContextProjection, CoverageStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
 
@@ -35,6 +35,9 @@ class ModelInput:
     reasoning_policy_fingerprint: str | None
     reasoning_policy: ReasoningPolicy | None
     items: tuple[ModelContextItem, ...]
+    coverage_status: CoverageStatus
+    unresolved_gaps: tuple[str, ...] = ()
+    omitted_refs: tuple[UUID, ...] = ()
     conflict_refs: tuple[UUID, ...] = ()
 
     def __post_init__(self) -> None:
@@ -58,8 +61,10 @@ class ModelResponse:
     content: str
 
     def __post_init__(self) -> None:
-        if not self.artifact_kind.strip():
+        if not isinstance(self.artifact_kind, str) or not self.artifact_kind.strip():
             raise ValueError("artifact_kind is required")
+        if not isinstance(self.content, str):
+            raise TypeError("model response content must be a string")
 
 
 class ModelAdapter(Protocol):
@@ -229,5 +234,8 @@ class CognitiveRuntime:
             reasoning_policy_fingerprint=(policy.fingerprint if policy is not None else None),
             reasoning_policy=policy,
             items=tuple(items),
+            coverage_status=projection.coverage_status,
+            unresolved_gaps=projection.unresolved_gaps,
+            omitted_refs=projection.omitted_refs,
             conflict_refs=projection.conflict_refs,
         )
