@@ -16,7 +16,7 @@ semantic admission
    Claims <---- ClaimRelations
      |
      +----> ResolvedState (derived)
-     +----> MemoryEntry
+     +----> MemoryEntry ----> MemoryLifecycleEvent
      |
 ContextRequest
      |
@@ -54,10 +54,32 @@ The **semantic kernel** owns durable identity, epistemic admission boundaries, a
 
 These are logical responsibilities, not mandatory microservices. A deployment may combine them in one process while preserving their contracts.
 
+## Canonical versus materialized state
+
+Canonical history is append-oriented. Materializations may be destroyed and rebuilt.
+
+In M1:
+
+- `claim_heads` is rebuilt from canonical claim/relation history;
+- `memory_entries.lifecycle` is rebuilt from canonical memory lifecycle events;
+- projection staleness/dependency indexes are disposable derived state.
+
+A materialization must never become the only surviving source of a semantic fact.
+
+## Snapshot discipline
+
+A context compiler must not read a frontier and then accidentally mix in later state. SQLite M1 uses an explicit WAL read transaction: the first frontier read pins the database snapshot, all claim/evidence/memory reads occur inside that snapshot, and only then is the immutable projection emitted.
+
+Projection dependency registration occurs after the read transaction. If the semantic frontier changed in that handoff window, registration conservatively marks the projection stale rather than pretending the snapshot is current.
+
+## Dependency discipline
+
+Domain contracts must not import storage/services. Domain packages export semantic types; write/read services may depend on storage adapters. This prevents circular dependencies and keeps the ontology independent of SQLite.
+
 ## Model independence
 
 The kernel must not know about system prompts, temperatures, tokenizers, OpenAI message arrays, or specific model names. Model adapters consume semantic `ContextProjection` objects and return non-authoritative cognitive artifacts.
 
 ## Storage independence
 
-The ontology is not the database schema. The first implementation may use SQLite, but canonical types and invariants must survive a move to another storage engine. Materialized state may be database-specific as long as it remains reconstructible and auditable.
+The ontology is not the database schema. SQLite is the first implementation. Schema v2 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.

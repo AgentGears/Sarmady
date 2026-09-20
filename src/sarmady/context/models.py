@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
+
+
+def _require_aware(value: datetime, field_name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
 
 
 class CoverageStatus(str, Enum):
@@ -20,10 +26,16 @@ class ContextRequest:
     goal_ref: UUID | None = None
     task_ref: UUID | None = None
     coverage_requirements: tuple[str, ...] = ()
+    known_at: datetime | None = None
+    valid_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.token_budget <= 0:
             raise ValueError("token_budget must be positive")
+        if self.known_at is not None:
+            _require_aware(self.known_at, "known_at")
+        if self.valid_at is not None:
+            _require_aware(self.valid_at, "valid_at")
 
 
 @dataclass(frozen=True, slots=True)
