@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from uuid import UUID
 
-from .candidates import lexical_tokens
+from ._lexical import lexical_tokens
 from .models import (
     CandidateSet,
     ContextCandidate,
@@ -175,12 +175,16 @@ class ControlledRequirementPlanner:
 
         if plan.planner_version != self.version:
             raise ValueError("requirement plan belongs to a different planner version")
+        if plan.candidate_generator_version != "lexical-v0.2":
+            raise ValueError("requirement plan uses an unsupported candidate generator")
         if plan.source_request_id != source.id:
             raise ValueError("requirement plan belongs to a different source request")
         if plan.source_request_fingerprint != context_request_fingerprint(source):
             raise ValueError("source request semantics changed after requirement planning")
         if plan.status is not RequirementPlanStatus.RESOLVED:
             raise ValueError("only a resolved requirement plan can derive a context request")
+        if len(plan.exact_requirements) != 1 or len(plan.selected_candidate_claim_ids) != 1:
+            raise ValueError("controlled requirement v0.1 plan must contain exactly one obligation")
         if not isinstance(new_request_id, UUID):
             raise TypeError("derived context request id must be UUID")
         if new_request_id == source.id:
