@@ -100,6 +100,18 @@ A tied or absent discriminating subject produces `AMBIGUOUS` with the competing 
 
 `rank_score` is not consulted to break semantic ambiguity. A higher retrieval score is evidence of relevance, not authorization to manufacture identity certainty.
 
+## Snapshot interpretation and freshness
+
+A `RequirementPlan` interprets the source request against the exact candidate snapshot/frontier recorded in the plan. Its `RESOLVED` status therefore means:
+
+> the controlled planner could emit this obligation from the complete `lexical-v0.2` candidate universe visible at that candidate snapshot.
+
+It does **not** mean that identity remains uniquely resolvable at every later semantic frontier. Another subject or predicate match may be admitted after candidate generation. Planning does not reopen the store and re-run candidate discovery during `derive_request()`.
+
+The subsequent `CoverageContextCompiler` opens a fresh pinned snapshot and independently re-resolves the selected semantic key, so it verifies current/historical support for that exact obligation. It does not repeat natural-language identity planning and therefore cannot detect that a newly admitted alternative subject would have changed the earlier planner outcome.
+
+This distinction is deliberate in v0.1: planning is snapshot-bound interpretation, not a current-frontier uniqueness fence. A future executive that requires current-frontier planning freshness must re-run candidate generation/planning or introduce a durable/fenced planning receipt rather than treating an old `RESOLVED` plan as timeless authorization.
+
 ## Deriving an exact request
 
 A resolved plan does not mutate its source request. `derive_request()` requires a new UUID and copies the source request's:
@@ -128,7 +140,11 @@ Planning performs no canonical writes and does not advance the epistemic frontie
 - mark coverage complete;
 - invoke a model or provider.
 
-Only a later context-projection registration persists the derived `ContextRequest` as part of its immutable projection lineage.
+The request fingerprint is a deterministic **integrity binding**, not an authentication primitive. It is not a MAC, signature, capability, permission, or proof that a candidate set came from trusted code. Likewise, `generator_version` and `is_exhaustive` are metadata assertions on a public derived value; an untrusted model/tool must not be allowed to self-attest those fields and thereby cross an authority boundary.
+
+`ControlledRequirementPlanner` v0.1 assumes its `CandidateSet` is produced by the trusted runtime retrieval path. The explicit generator-version check prevents accidental semantic substitution but does not cryptographically authenticate provenance. This is acceptable for the current in-process derived-computation boundary because callers already able to construct arbitrary exact `ContextRequest` values are not gaining a new semantic-admission authority through this planner.
+
+Only a later context-projection registration persists the derived `ContextRequest` as part of its immutable projection lineage. The current schema does not persist the source `RequirementPlan` or parent request/candidate receipt, so durable audit/replay of the automatic planning decision is not yet provided.
 
 ## Deliberate limitations
 
@@ -144,6 +160,7 @@ Only a later context-projection registration persists the derived `ContextReques
 - LLM-based planning;
 - semantic/vector candidate generation;
 - adaptive retrieval expansion;
-- durable plan receipts.
+- current-frontier replanning/freshness fencing;
+- durable plan receipts or persisted source-plan lineage.
 
 The next planner may be more capable, but it must preserve the same hard rule: uncertainty is an explicit output, and hard semantic constraints require evidence stronger than rank preference.
