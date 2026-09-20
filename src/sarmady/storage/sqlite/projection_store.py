@@ -37,6 +37,24 @@ class ProjectionStoreMixin:
         if projection.request_id != request.id:
             raise ValueError("projection must reference the persisted context request")
 
+        # Reconstruct through the current public invariant before consuming a
+        # one-shot lineage capture or writing anything. Historical rows may be
+        # rehydrated with legacy values (for example nonpositive latency), but
+        # those compatibility objects are read-only representations and cannot
+        # propagate invalid state into a fresh store.
+        request = ContextRequest(
+            id=request.id,
+            query=request.query,
+            token_budget=request.token_budget,
+            latency_budget_ms=request.latency_budget_ms,
+            goal_ref=request.goal_ref,
+            task_ref=request.task_ref,
+            coverage_requirements=tuple(request.coverage_requirements),
+            exact_requirements=tuple(request.exact_requirements),
+            known_at=request.known_at,
+            valid_at=request.valid_at,
+        )
+
         canonical_frontier = int(projection.canonical_frontier)
         captured_dependencies = self._consume_context_dependency_capture(
             dependency_capture,
