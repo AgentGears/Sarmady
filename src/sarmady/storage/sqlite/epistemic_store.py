@@ -94,8 +94,13 @@ class EpistemicStoreMixin:
             for ref in claim.evidence_refs:
                 if ref == evidence.id:
                     continue
-                if self.evidence(ref) is None:
+                referenced_evidence = self.evidence(ref)
+                if referenced_evidence is None:
                     raise ValueError(f"claim references unknown evidence {ref}")
+                if referenced_evidence.captured_at > claim.recorded_at:
+                    raise ValueError(
+                        f"claim references evidence captured after claim admission: {ref}"
+                    )
 
             self.db.execute(
                 "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
