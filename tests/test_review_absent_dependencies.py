@@ -106,8 +106,9 @@ def test_context_lineage_receipt_cannot_be_relabelled_to_newer_frontier(tmp_path
         assert newer_frontier > original_frontier
 
         # The receipt exposes a read-only frontier derived from store-owned
-        # capture state. Public reassignment cannot relabel old reads.
-        with pytest.raises(AttributeError):
+        # capture state. CPython versions differ in the exact exception raised
+        # by frozen/slotted dataclass assignment, but all must reject relabeling.
+        with pytest.raises((AttributeError, TypeError)):
             snapshot.frontier = newer_frontier  # type: ignore[misc]
         assert snapshot.frontier == original_frontier
 
