@@ -29,6 +29,10 @@ class ProjectionStoreMixin:
         canonical_frontier = int(projection.canonical_frontier)
         with self._write_transaction():
             current_frontier = self.frontier()
+            if canonical_frontier < 0:
+                raise ValueError(
+                    "projection canonical_frontier cannot be negative"
+                )
             if canonical_frontier > current_frontier:
                 raise ValueError(
                     "projection canonical_frontier cannot exceed current frontier"
