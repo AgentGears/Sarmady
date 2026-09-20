@@ -120,8 +120,18 @@ class ContextCandidate:
             or not math.isfinite(float(self.rank_score))
         ):
             raise ValueError("candidate rank_score must be a finite number")
-        if len(self.signals) != len(set(self.signals)):
+
+        if isinstance(self.signals, str):
+            raise TypeError("candidate signals must be an iterable of strings")
+        try:
+            signals = tuple(self.signals)
+        except TypeError as exc:
+            raise TypeError("candidate signals must be an iterable of strings") from exc
+        if any(not isinstance(signal, str) or not signal for signal in signals):
+            raise TypeError("candidate signals must contain non-empty strings")
+        if len(signals) != len(set(signals)):
             raise ValueError("candidate signals must be unique")
+        object.__setattr__(self, "signals", signals)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +151,18 @@ class CandidateSet:
             raise ValueError("candidate canonical_frontier is required")
         if not self.generator_version:
             raise ValueError("candidate generator_version is required")
+
+        if isinstance(self.candidates, (str, bytes)):
+            raise TypeError("candidates must be an iterable of ContextCandidate")
+        try:
+            candidates = tuple(self.candidates)
+        except TypeError as exc:
+            raise TypeError(
+                "candidates must be an iterable of ContextCandidate"
+            ) from exc
+        if any(not isinstance(candidate, ContextCandidate) for candidate in candidates):
+            raise TypeError("candidates must contain only ContextCandidate values")
+        object.__setattr__(self, "candidates", candidates)
 
 
 @dataclass(frozen=True, slots=True)
