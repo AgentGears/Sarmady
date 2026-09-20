@@ -29,7 +29,9 @@ class ProjectionStoreMixin:
 
         Dependency-aware race handling is enabled only when registration carries
         a one-shot capture produced by ``context_read_snapshot``. A raw caller
-        declaration is not treated as proof of completeness. Unproven
+        declaration is not treated as proof of completeness. Proven lineage is
+        bound to both the captured semantic dependencies and the projection
+        items successfully read inside that pinned snapshot. Unproven
         projections may register only at the current frontier and receive a
         wildcard dependency so any later semantic mutation stales them.
         """
@@ -56,21 +58,32 @@ class ProjectionStoreMixin:
         )
 
         canonical_frontier = int(projection.canonical_frontier)
-        captured_dependencies = self._consume_context_dependency_capture(
+        required_refs = frozenset(
+            (item.ref_type, item.ref_id) for item in projection.items
+        )
+        captured_lineage = self._consume_context_dependency_capture(
             dependency_capture,
             frontier=canonical_frontier,
+            required_refs=required_refs,
         )
         declared_dependencies = set(dependency_keys)
-        lineage_proven = captured_dependencies is not None
-        if captured_dependencies is not None:
+        if captured_lineage is not None:
+            captured_dependencies, captured_refs = captured_lineage
             if declared_dependencies and declared_dependencies != set(
                 captured_dependencies
             ):
                 raise ValueError(
                     "declared dependency_keys do not match captured context dependencies"
                 )
+            # A closed but untouched capture proves no semantic lineage. Treat
+            # it as unproven so an old frontier cannot be blessed simply by
+            # opening and closing a snapshot without consulting canonical state.
+            lineage_proven = bool(captured_dependencies or captured_refs)
             effective_dependencies = set(captured_dependencies)
+            if not lineage_proven:
+                effective_dependencies.add(_UNPROVEN_CONTEXT_DEPENDENCY)
         else:
+            lineage_proven = False
             effective_dependencies = declared_dependencies
             effective_dependencies.add(_UNPROVEN_CONTEXT_DEPENDENCY)
 
