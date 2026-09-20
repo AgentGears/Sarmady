@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -95,28 +96,32 @@ class ContextRequest:
 class ContextCandidate:
     """One derived semantic-key candidate for a context request.
 
-    A candidate is relevance evidence only. It does not imply that a context
-    requirement is satisfied, that the referenced claim should be adopted, or
-    that the candidate should be written back into canonical memory.
+    `rank_score` is generator-local and is not a calibrated probability or a
+    value that may be compared across different generator versions. `signals`
+    are optional diagnostic labels whose meaning is likewise generator-local.
+    A candidate is relevance evidence only; it does not imply coverage,
+    adoption, or memory admission.
     """
 
     subject: str
     predicate: str
     operative_claim_id: UUID
-    score: int
-    matched_terms: tuple[str, ...]
+    rank_score: float
+    signals: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.subject.strip():
             raise ValueError("candidate subject is required")
         if not self.predicate.strip():
             raise ValueError("candidate predicate is required")
-        if self.score <= 0:
-            raise ValueError("candidate score must be positive")
-        if not self.matched_terms:
-            raise ValueError("candidate matched_terms cannot be empty")
-        if len(self.matched_terms) != len(set(self.matched_terms)):
-            raise ValueError("candidate matched_terms must be unique")
+        if (
+            isinstance(self.rank_score, bool)
+            or not isinstance(self.rank_score, (int, float))
+            or not math.isfinite(float(self.rank_score))
+        ):
+            raise ValueError("candidate rank_score must be a finite number")
+        if len(self.signals) != len(set(self.signals)):
+            raise ValueError("candidate signals must be unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +131,6 @@ class CandidateSet:
     request_id: UUID
     snapshot_id: str
     canonical_frontier: str
-    query_terms: tuple[str, ...]
     candidates: tuple[ContextCandidate, ...]
     generator_version: str
 
@@ -137,8 +141,6 @@ class CandidateSet:
             raise ValueError("candidate canonical_frontier is required")
         if not self.generator_version:
             raise ValueError("candidate generator_version is required")
-        if len(self.query_terms) != len(set(self.query_terms)):
-            raise ValueError("candidate query_terms must be unique")
 
 
 @dataclass(frozen=True, slots=True)
