@@ -13,20 +13,49 @@ from sarmady.context.models import (
 )
 
 
+_UNPROVEN_CONTEXT_DEPENDENCY = "semantic:*"
+
+
 class ProjectionStoreMixin:
     def register_context_projection(
         self,
         projection: ContextProjection,
         *,
         request: ContextRequest,
-        dependency_keys: tuple[str, ...],
+        dependency_keys: tuple[str, ...] = (),
+        dependency_capture: object | None = None,
     ) -> bool:
-        """Persist a complete immutable projection; return whether it is stale."""
+        """Persist a complete immutable projection; return whether it is stale.
+
+        Dependency-aware race handling is enabled only when registration carries
+        a one-shot capture produced by ``context_read_snapshot``. A raw caller
+        declaration is not treated as proof of completeness. Unproven
+        projections may register only at the current frontier and receive a
+        wildcard dependency so any later semantic mutation stales them.
+        """
 
         if projection.request_id != request.id:
             raise ValueError("projection must reference the persisted context request")
 
         canonical_frontier = int(projection.canonical_frontier)
+        captured_dependencies = self._consume_context_dependency_capture(
+            dependency_capture,
+            frontier=canonical_frontier,
+        )
+        declared_dependencies = set(dependency_keys)
+        lineage_proven = captured_dependencies is not None
+        if captured_dependencies is not None:
+            if declared_dependencies and declared_dependencies != set(
+                captured_dependencies
+            ):
+                raise ValueError(
+                    "declared dependency_keys do not match captured context dependencies"
+                )
+            effective_dependencies = set(captured_dependencies)
+        else:
+            effective_dependencies = declared_dependencies
+            effective_dependencies.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+
         with self._write_transaction():
             current_frontier = self.frontier()
             if canonical_frontier < 0:
@@ -36,6 +65,10 @@ class ProjectionStoreMixin:
             if canonical_frontier > current_frontier:
                 raise ValueError(
                     "projection canonical_frontier cannot exceed current frontier"
+                )
+            if not lineage_proven and canonical_frontier < current_frontier:
+                raise ValueError(
+                    "projection compiled before current frontier requires captured dependency lineage"
                 )
             self.db.execute(
                 """
@@ -71,7 +104,7 @@ class ProjectionStoreMixin:
                 ),
             )
             changed_dependencies = self._dependency_keys_changed_since(canonical_frontier)
-            stale = bool(set(dependency_keys) & changed_dependencies)
+            stale = bool(effective_dependencies & changed_dependencies)
             persisted_request = self.context_request(request.id)
             if persisted_request != request:
                 raise ValueError(
@@ -139,7 +172,7 @@ class ProjectionStoreMixin:
                 """,
                 [
                     (str(projection.id), dependency)
-                    for dependency in sorted(set(dependency_keys))
+                    for dependency in sorted(effective_dependencies)
                 ],
             )
         return stale
@@ -148,9 +181,9 @@ class ProjectionStoreMixin:
         """Return context dependency keys changed after a semantic frontier.
 
         Registration uses this under the write lock so unrelated semantic-log
-        activity cannot stale a freshly compiled projection. SEEN/USED memory
-        telemetry is intentionally excluded because it does not change memory
-        admission/lifecycle state.
+        activity cannot stale a freshly compiled projection with proven
+        lineage. SEEN/USED memory telemetry is intentionally excluded because
+        it does not change memory admission/lifecycle state.
         """
 
         rows = self.db.execute(
@@ -328,7 +361,8 @@ class ProjectionStoreMixin:
                 SELECT projection_id
                 FROM context_projection_dependencies
                 WHERE dependency_key IN ({placeholders})
+                   OR dependency_key = ?
               )
             """,
-            (reason, frontier, *keys),
+            (reason, frontier, *keys, _UNPROVEN_CONTEXT_DEPENDENCY),
         )
