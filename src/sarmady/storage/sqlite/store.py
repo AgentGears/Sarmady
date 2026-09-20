@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from ._codec import iso
 from .cognitive_store import CognitiveStoreMixin
@@ -19,17 +20,33 @@ from .schema import initialize_schema
 
 
 @dataclass(slots=True)
-class _ContextDependencyCapture:
+class _ContextDependencyState:
     frontier: int
-    _store: Any = field(repr=False)
-    _store_token: object = field(repr=False)
-    _keys: set[str] = field(default_factory=set, repr=False)
-    _closed: bool = field(default=False, repr=False)
-    _consumed: bool = field(default=False, repr=False)
+    keys: set[str] = field(default_factory=set)
+    closed: bool = False
+    consumed: bool = False
 
-    def _require_open(self) -> None:
-        if self._closed:
+
+@dataclass(slots=True, frozen=True, eq=False, weakref_slot=True)
+class _ContextDependencyCapture:
+    _store: Any = field(repr=False)
+
+    def _state(self) -> _ContextDependencyState:
+        return self._store._context_dependency_state(self)
+
+    @property
+    def frontier(self) -> int:
+        return self._state().frontier
+
+    def _require_open(self) -> _ContextDependencyState:
+        state = self._state()
+        if state.closed:
             raise RuntimeError("context read snapshot is closed")
+        return state
+
+    def _record_dependency(self, dependency_key: str) -> None:
+        state = self._require_open()
+        state.keys.add(dependency_key)
 
     def resolved_state(
         self,
@@ -39,8 +56,9 @@ class _ContextDependencyCapture:
         known_at: datetime | None = None,
         valid_at: datetime | None = None,
     ):
-        self._require_open()
-        self._keys.add(self._store.epistemic_dependency_key(subject, predicate))
+        self._record_dependency(
+            self._store.epistemic_dependency_key(subject, predicate)
+        )
         return self._store.resolved_state(
             subject,
             predicate,
@@ -55,7 +73,7 @@ class _ContextDependencyCapture:
         if claim is None:
             # Absence is itself context state. Claim IDs are immutable once
             # present, but a missing ID can become present after this snapshot.
-            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
         return claim
 
     def evidence(self, evidence_id: UUID):
@@ -63,34 +81,35 @@ class _ContextDependencyCapture:
         evidence = self._store.evidence(evidence_id)
         if evidence is None:
             # As with claims, a negative lookup must not be treated as timeless.
-            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
         return evidence
 
     def memory_entry_for_target(self, target_type: str, target_id: UUID):
         self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
-            self._keys.add(self._store.memory_dependency_key(entry.id))
+            self._record_dependency(self._store.memory_dependency_key(entry.id))
         else:
-            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
         return entry
 
     def is_active_memory_target(self, target_type: str, target_id: UUID) -> bool:
         self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
-            self._keys.add(self._store.memory_dependency_key(entry.id))
+            self._record_dependency(self._store.memory_dependency_key(entry.id))
         else:
-            self._keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
         return self._store.is_active_memory_target(target_type, target_id)
 
     @property
     def dependency_keys(self) -> tuple[str, ...]:
-        if not self._closed:
+        state = self._state()
+        if not state.closed:
             raise RuntimeError(
                 "context dependency keys are available only after the snapshot closes"
             )
-        return tuple(sorted(self._keys))
+        return tuple(sorted(state.keys))
 
 
 class SQLiteCanonicalStore(
@@ -116,7 +135,9 @@ class SQLiteCanonicalStore(
         self.db.execute("PRAGMA synchronous = FULL")
         self.db.execute("PRAGMA busy_timeout = 5000")
         initialize_schema(self.db)
-        self._context_dependency_token = object()
+        self._context_dependency_states: WeakKeyDictionary[
+            _ContextDependencyCapture, _ContextDependencyState
+        ] = WeakKeyDictionary()
         self._active_context_dependency_capture: _ContextDependencyCapture | None = None
 
     def close(self) -> None:
@@ -154,33 +175,39 @@ class SQLiteCanonicalStore(
         finally:
             self.db.rollback()
 
+    def _context_dependency_state(
+        self,
+        capture: _ContextDependencyCapture,
+    ) -> _ContextDependencyState:
+        state = self._context_dependency_states.get(capture)
+        if state is None:
+            raise ValueError("invalid context dependency capture")
+        return state
+
     @contextmanager
     def context_read_snapshot(self) -> Iterator[_ContextDependencyCapture]:
         """Pin context reads and capture their semantic dependencies.
 
         Context compilers must perform semantic reads through the yielded
-        snapshot proxy. The resulting one-shot capture proves which dependency
-        keys were actually consulted and can therefore support dependency-aware
-        registration without trusting a caller-supplied declaration. The proxy
-        expires when this context exits; semantic reads after the pinned SQLite
-        snapshot closes are rejected rather than mislabeled with its frontier.
+        snapshot proxy. The receipt itself is frozen; its frontier, dependency
+        set, close state, and one-shot consumption state remain store-owned so a
+        caller cannot relabel or edit the proof after the pinned read closes.
+        Semantic reads after the SQLite snapshot closes are rejected.
         """
 
         if self._active_context_dependency_capture is not None:
             raise RuntimeError("nested context dependency capture is not supported")
 
         with self.read_snapshot() as frontier:
-            capture = _ContextDependencyCapture(
-                frontier=frontier,
-                _store=self,
-                _store_token=self._context_dependency_token,
-            )
+            capture = _ContextDependencyCapture(_store=self)
+            state = _ContextDependencyState(frontier=frontier)
+            self._context_dependency_states[capture] = state
             self._active_context_dependency_capture = capture
             try:
                 yield capture
             finally:
                 self._active_context_dependency_capture = None
-                capture._closed = True
+                state.closed = True
 
     def _consume_context_dependency_capture(
         self,
@@ -192,18 +219,21 @@ class SQLiteCanonicalStore(
             return None
         if not isinstance(capture, _ContextDependencyCapture):
             raise ValueError("invalid context dependency capture")
-        if capture._store_token is not self._context_dependency_token:
+        if capture._store is not self:
             raise ValueError("context dependency capture belongs to another store")
-        if not capture._closed:
+        state = self._context_dependency_states.get(capture)
+        if state is None:
+            raise ValueError("invalid context dependency capture")
+        if not state.closed:
             raise ValueError("context dependency capture is still active")
-        if capture._consumed:
+        if state.consumed:
             raise ValueError("context dependency capture has already been consumed")
-        if capture.frontier != frontier:
+        if state.frontier != frontier:
             raise ValueError(
                 "context dependency capture frontier does not match projection frontier"
             )
-        capture._consumed = True
-        return frozenset(capture._keys)
+        state.consumed = True
+        return frozenset(state.keys)
 
     def _log(self, kind: str, ref_id: UUID, recorded_at: datetime) -> None:
         cursor = self.db.execute(
