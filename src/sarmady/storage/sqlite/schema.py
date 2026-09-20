@@ -21,8 +21,11 @@ def initialize_schema(db: sqlite3.Connection) -> None:
     # backwards-compatible JSON encoding inside coverage_requirements_json.
     # v6 adds no columns; it establishes conservative lineage semantics for
     # projections created before dependency capture could prove completeness.
+    # The schema version is deliberately advanced only after every migration
+    # succeeds. If migration is interrupted, the prior version remains durable
+    # and the idempotent migration is retried on the next open.
     db.executescript(
-        f"""
+        """
         CREATE TABLE IF NOT EXISTS semantic_log (
             seq INTEGER PRIMARY KEY AUTOINCREMENT,
             kind TEXT NOT NULL,
@@ -203,13 +206,14 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_generated_artifacts_invocation
             ON generated_artifacts(invocation_id);
-
-        PRAGMA user_version = {SCHEMA_VERSION};
         """
     )
     _backfill_legacy_memory_created_events(db)
     if version < 6:
         _backfill_legacy_projection_lineage(db)
+
+    db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    db.commit()
 
 
 def _backfill_legacy_memory_created_events(db: sqlite3.Connection) -> None:
