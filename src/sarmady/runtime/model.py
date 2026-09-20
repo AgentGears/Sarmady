@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Protocol
 from uuid import UUID, uuid4
@@ -35,10 +35,10 @@ class ModelInput:
     reasoning_policy_fingerprint: str | None
     reasoning_policy: ReasoningPolicy | None
     items: tuple[ModelContextItem, ...]
-    coverage_status: CoverageStatus
-    unresolved_gaps: tuple[str, ...] = ()
-    omitted_refs: tuple[UUID, ...] = ()
     conflict_refs: tuple[UUID, ...] = ()
+    coverage_status: CoverageStatus = field(kw_only=True)
+    unresolved_gaps: tuple[str, ...] = field(default=(), kw_only=True)
+    omitted_refs: tuple[UUID, ...] = field(default=(), kw_only=True)
 
     def __post_init__(self) -> None:
         if self.reasoning_policy is None:
@@ -234,8 +234,8 @@ class CognitiveRuntime:
             reasoning_policy_fingerprint=(policy.fingerprint if policy is not None else None),
             reasoning_policy=policy,
             items=tuple(items),
+            conflict_refs=projection.conflict_refs,
             coverage_status=projection.coverage_status,
             unresolved_gaps=projection.unresolved_gaps,
             omitted_refs=projection.omitted_refs,
-            conflict_refs=projection.conflict_refs,
         )
