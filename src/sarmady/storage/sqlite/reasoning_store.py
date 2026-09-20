@@ -25,6 +25,12 @@ class ReasoningStoreMixin:
         if registered_at.tzinfo is None or registered_at.utcoffset() is None:
             raise ValueError("registered_at must be timezone-aware")
 
+        # Reconstruct at the persistence boundary instead of trusting that the
+        # supplied object still reflects current constructor invariants. This is
+        # essential for legacy objects rehydrated with their historical digest
+        # spelling solely to verify an old fingerprint.
+        policy = self._canonical_policy_for_registration(policy)
+
         stages_json = json.dumps(list(policy.stages), ensure_ascii=False)
         requirements_json = json.dumps(
             [
@@ -100,6 +106,20 @@ class ReasoningStoreMixin:
             (policy_id,),
         ).fetchone()
         return row["fingerprint"] if row is not None else None
+
+    @staticmethod
+    def _canonical_policy_for_registration(policy: ReasoningPolicy) -> ReasoningPolicy:
+        digest = policy.source_sha256
+        canonical_digest = digest.lower() if digest is not None else None
+        return ReasoningPolicy(
+            id=policy.id,
+            version=policy.version,
+            mode=policy.mode,
+            stages=tuple(policy.stages),
+            requirements=tuple(policy.requirements),
+            source_ref=policy.source_ref,
+            source_sha256=canonical_digest,
+        )
 
     @staticmethod
     def _equivalent_modulo_digest_case(
