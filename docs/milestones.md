@@ -49,13 +49,16 @@ Completed slices:
 - explicit `COMPLETE` / `PARTIAL` / `INSUFFICIENT` coverage semantics;
 - contradiction closure as a coverage obligation;
 - dependency invalidation across every required epistemic key;
-- backward-compatible persistence of pre-v5 label-only context requests.
+- backward-compatible persistence of pre-v5 label-only context requests;
+- deterministic snapshot-bound lexical candidate discovery over semantic keys;
+- temporal resolution and active-memory gating during lexical discovery;
+- explicit preservation of candidate relevance ≠ context sufficiency and retrieval exposure ≠ memory strengthening.
 
 Still deferred within M2:
 
 - adaptive reasoning-policy routing and routing validation;
 - iterative context requests during reasoning;
-- semantic/lexical candidate generation;
+- semantic embedding/vector candidate generation;
 - automatic natural-language-to-requirement planning;
 - adaptive coverage expansion;
 - provider-specific model renderers/adapters.
