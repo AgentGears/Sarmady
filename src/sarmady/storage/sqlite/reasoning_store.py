@@ -99,6 +99,19 @@ class ReasoningStoreMixin:
             ReasoningRequirement(item["key"], item["description"])
             for item in json.loads(row["requirements_json"])
         )
+        persisted_digest = row["source_sha256"]
+        construction_digest = persisted_digest
+        legacy_noncanonical_digest = (
+            persisted_digest is not None
+            and persisted_digest != persisted_digest.lower()
+        )
+        if legacy_noncanonical_digest:
+            # Pre-hardening releases accepted uppercase/mixed-case SHA-256
+            # provenance. Validate the digest through the current constructor
+            # using its canonical lowercase form, then restore the exact legacy
+            # spelling solely for fingerprint verification and durable reads.
+            construction_digest = persisted_digest.lower()
+
         policy = ReasoningPolicy(
             id=row["id"],
             version=row["version"],
@@ -106,8 +119,10 @@ class ReasoningStoreMixin:
             stages=tuple(json.loads(row["stages_json"])),
             requirements=requirements,
             source_ref=row["source_ref"],
-            source_sha256=row["source_sha256"],
+            source_sha256=construction_digest,
         )
+        if legacy_noncanonical_digest:
+            object.__setattr__(policy, "source_sha256", persisted_digest)
         if policy.fingerprint != row["fingerprint"]:
             raise RuntimeError(
                 f"persisted reasoning policy {policy.id!r} failed fingerprint verification"
