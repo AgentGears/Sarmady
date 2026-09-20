@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Protocol
 from uuid import UUID, uuid4
 
-from sarmady.cognition import CognitiveRequest, GeneratedArtifact, ModelInvocation
+from sarmady.cognition import (
+    CognitiveRequest,
+    GeneratedArtifact,
+    ModelInvocation,
+    ReasoningPolicy,
+)
 from sarmady.context import ContextProjection
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
@@ -27,8 +32,24 @@ class ModelInput:
     snapshot_id: str
     operation: str
     reasoning_policy_id: str | None
+    reasoning_policy_fingerprint: str | None
+    reasoning_policy: ReasoningPolicy | None
     items: tuple[ModelContextItem, ...]
     conflict_refs: tuple[UUID, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.reasoning_policy is None:
+            if self.reasoning_policy_id is not None or self.reasoning_policy_fingerprint is not None:
+                raise ValueError(
+                    "reasoning policy metadata requires a structured reasoning policy"
+                )
+            return
+        if self.reasoning_policy_id != self.reasoning_policy.id:
+            raise ValueError("reasoning_policy_id must match the structured policy")
+        if self.reasoning_policy_fingerprint != self.reasoning_policy.fingerprint:
+            raise ValueError(
+                "reasoning_policy_fingerprint must match the structured policy"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,10 +88,30 @@ class CognitiveRuntime:
         context_projection_id: UUID,
         operation: str,
         adapter: ModelAdapter,
+        reasoning_policy: ReasoningPolicy | None = None,
         reasoning_policy_id: str | None = None,
     ) -> GeneratedArtifact:
         if not adapter.binding_id.strip():
             raise ValueError("adapter binding_id is required")
+        if (
+            reasoning_policy is not None
+            and reasoning_policy_id is not None
+            and reasoning_policy.id != reasoning_policy_id
+        ):
+            raise ValueError(
+                "reasoning_policy and reasoning_policy_id refer to different policies"
+            )
+
+        policy = reasoning_policy
+        if policy is not None:
+            self.store.register_reasoning_policy(
+                policy,
+                registered_at=self.clock(),
+            )
+        elif reasoning_policy_id is not None:
+            policy = self.store.reasoning_policy(reasoning_policy_id)
+            if policy is None:
+                raise ValueError(f"unknown reasoning policy {reasoning_policy_id!r}")
 
         request = CognitiveRequest(
             id=uuid4(),
@@ -78,7 +119,7 @@ class CognitiveRuntime:
             context_projection_id=context_projection_id,
             operation=operation,
             created_at=self.clock(),
-            reasoning_policy_id=reasoning_policy_id,
+            reasoning_policy_id=policy.id if policy is not None else None,
         )
         self.store.create_cognitive_request(request)
         projection = self.store.context_projection(context_projection_id)
@@ -130,6 +171,14 @@ class CognitiveRuntime:
         request: CognitiveRequest,
         projection: ContextProjection,
     ) -> ModelInput:
+        policy = None
+        if request.reasoning_policy_id is not None:
+            policy = self.store.reasoning_policy(request.reasoning_policy_id)
+            if policy is None:
+                raise RuntimeError(
+                    f"cognitive request references missing reasoning policy {request.reasoning_policy_id!r}"
+                )
+
         items: list[ModelContextItem] = []
         for item in projection.items:
             if item.ref_type == "Claim":
@@ -176,7 +225,9 @@ class CognitiveRuntime:
             context_projection_id=projection.id,
             snapshot_id=projection.snapshot_id,
             operation=request.operation,
-            reasoning_policy_id=request.reasoning_policy_id,
+            reasoning_policy_id=policy.id if policy is not None else None,
+            reasoning_policy_fingerprint=(policy.fingerprint if policy is not None else None),
+            reasoning_policy=policy,
             items=tuple(items),
             conflict_refs=projection.conflict_refs,
         )
