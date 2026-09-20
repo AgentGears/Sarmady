@@ -15,6 +15,13 @@ from sarmady.context.models import (
 
 _UNPROVEN_CONTEXT_DEPENDENCY = "semantic:*"
 _SUPPORTED_CONTEXT_ITEM_TYPES = frozenset({"Claim", "Evidence"})
+_CANONICAL_METADATA_TABLES = (
+    "events",
+    "evidence",
+    "claims",
+    "claim_relations",
+    "memory_entries",
+)
 
 
 class ProjectionStoreMixin:
@@ -31,10 +38,10 @@ class ProjectionStoreMixin:
         Dependency-aware race handling is enabled only when registration carries
         a one-shot capture produced by ``context_read_snapshot``. A raw caller
         declaration is not treated as proof of completeness. Proven lineage is
-        bound to both the captured semantic dependencies and the projection
-        items successfully read inside that pinned snapshot. Unproven
-        projections may register only at the current frontier and receive a
-        wildcard dependency so any later semantic mutation stales them.
+        bound to both the captured semantic dependencies and every model-visible
+        canonical reference carried by the projection. Unproven projections may
+        register only at the current frontier and receive a wildcard dependency
+        so any later semantic mutation stales them.
         """
 
         if projection.request_id != request.id:
@@ -81,13 +88,22 @@ class ProjectionStoreMixin:
                 + ", ".join(unsupported_types)
             )
 
-        required_refs = frozenset(
+        required_refs = {
             (item.ref_type, item.ref_id) for item in projection.items
+        }
+        required_refs.update(
+            ("ClaimRelation", relation_id)
+            for relation_id in projection.conflict_refs
         )
+        required_any_refs = set(projection.omitted_refs)
+        for item in projection.items:
+            required_any_refs.update(item.provenance_refs)
+
         captured_lineage = self._consume_context_dependency_capture(
             dependency_capture,
             frontier=canonical_frontier,
-            required_refs=required_refs,
+            required_refs=frozenset(required_refs),
+            required_any_refs=frozenset(required_any_refs),
         )
         declared_dependencies = set(dependency_keys)
         if captured_lineage is not None:
@@ -121,12 +137,12 @@ class ProjectionStoreMixin:
                     "projection compiled before current frontier requires captured dependency lineage"
                 )
 
-            # A persisted projection must be materializable by the current
-            # model-runtime contract. Captured lineage already proves historical
-            # snapshot membership; this existence fence also protects the
-            # intentionally allowed unproven/current-frontier registration path
-            # from admitting dangling canonical references.
-            self._validate_context_projection_items_in_tx(projection)
+            # A persisted projection must be materializable and auditable under
+            # the current runtime contract. Captured lineage proves historical
+            # membership; these existence fences also protect the intentionally
+            # allowed unproven/current-frontier registration path from dangling
+            # item, provenance, conflict, or omission references.
+            self._validate_context_projection_refs_in_tx(projection)
 
             self.db.execute(
                 """
@@ -241,7 +257,7 @@ class ProjectionStoreMixin:
             )
         return stale
 
-    def _validate_context_projection_items_in_tx(
+    def _validate_context_projection_refs_in_tx(
         self,
         projection: ContextProjection,
     ) -> None:
@@ -262,6 +278,39 @@ class ProjectionStoreMixin:
                 raise ValueError(
                     f"context projection references unknown {item.ref_type} {item.ref_id}"
                 )
+
+            for provenance_ref in item.provenance_refs:
+                if not self._canonical_metadata_ref_exists_in_tx(provenance_ref):
+                    raise ValueError(
+                        "context projection references unknown provenance artifact "
+                        f"{provenance_ref}"
+                    )
+
+        for conflict_ref in projection.conflict_refs:
+            exists = self.db.execute(
+                "SELECT 1 FROM claim_relations WHERE id = ?",
+                (str(conflict_ref),),
+            ).fetchone()
+            if exists is None:
+                raise ValueError(
+                    f"context projection references unknown conflict relation {conflict_ref}"
+                )
+
+        for omitted_ref in projection.omitted_refs:
+            if not self._canonical_metadata_ref_exists_in_tx(omitted_ref):
+                raise ValueError(
+                    f"context projection references unknown omitted artifact {omitted_ref}"
+                )
+
+    def _canonical_metadata_ref_exists_in_tx(self, ref_id: UUID) -> bool:
+        for table in _CANONICAL_METADATA_TABLES:
+            exists = self.db.execute(
+                f"SELECT 1 FROM {table} WHERE id = ?",
+                (str(ref_id),),
+            ).fetchone()
+            if exists is not None:
+                return True
+        return False
 
     def _dependency_keys_changed_since(self, frontier: int) -> set[str]:
         """Return context dependency keys changed after a semantic frontier.
