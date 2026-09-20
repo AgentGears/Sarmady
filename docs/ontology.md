@@ -10,7 +10,7 @@ Sarmady separates three classes of state:
 
 `Person` is a human identity. `Agent` is a persistent artificial identity. `Principal` is an identity that can hold or exercise authority. `Relationship` connects durable identities. `Binding` maps an identity to an external account, surface, or provider endpoint.
 
-An `Agent` is explicitly not a model, process, thread, provider, or surface.
+An `Agent` is explicitly not a model, process, thread, provider, or surface. Agent identity is durable; model bindings belong to individual `ModelInvocation` records and may change without changing the agent.
 
 ## Epistemic state
 
@@ -47,11 +47,11 @@ Claims carry both world-valid time (`valid_from`, `valid_to`) and knowledge/reco
 
 A projection may later become **stale** when one of its recorded dependencies changes. Staleness is derived state; the projection itself remains immutable and auditable as a historical snapshot.
 
-A `ContextProjection` is not a prompt. A model-specific renderer converts it into provider/model input.
+A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable projection are durably rehydratable. A model adapter receives a structured semantic `ModelInput` derived from the persisted projection; provider-specific rendering remains outside canonical state.
 
 ## Cognition
 
-`CognitiveRequest` requests computation over a context projection. `ReasoningPolicy` selects deliberation behavior. `ModelInvocation` records a particular computation. `GeneratedArtifact` is model-produced, non-authoritative output. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
+`CognitiveRequest` is a durable operational request for computation by one persistent `Agent` over one persisted context projection. `ReasoningPolicy` selects deliberation behavior. `ModelInvocation` records a particular compute attempt and its replaceable model binding. `GeneratedArtifact` is durable model-produced, non-authoritative output. These cognitive records do not advance epistemic truth merely by existing. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
 
 ## Executive state
 
