@@ -4,8 +4,12 @@ from uuid import uuid4
 
 import pytest
 
-from sarmady.context import ContextRequest, LexicalCandidateGenerator
-from sarmady.epistemic import ClaimRelationKind
+from sarmady.context import (
+    ContextCandidate,
+    ContextRequest,
+    LexicalCandidateGenerator,
+)
+from sarmady.epistemic import ClaimRelationKind, ResolutionStatus
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.memory import MemoryLifecycleEventKind
 from sarmady.storage.sqlite import SQLiteCanonicalStore
@@ -58,9 +62,8 @@ def test_lexical_candidates_rank_predicate_match_over_subject_only(tmp_path) -> 
             memory.id,
             os_claim.id,
         ]
-        assert result.candidates[0].score > result.candidates[1].score
-        assert result.candidates[0].matched_terms == ("machine", "memory")
-        assert result.query_terms == ("machine", "memory")
+        assert result.candidates[0].rank_score > result.candidates[1].rank_score
+        assert result.candidates[0].signals == ("term:machine", "term:memory")
         assert result.snapshot_id == f"sqlite:{result.canonical_frontier}"
 
 
@@ -109,7 +112,7 @@ def test_candidate_generation_uses_requested_knowledge_time(tmp_path) -> None:
 
         assert len(historical.candidates) == 1
         assert historical.candidates[0].operative_claim_id == old_claim.id
-        assert historical.candidates[0].matched_terms == ("ubuntu",)
+        assert historical.candidates[0].signals == ("term:ubuntu",)
         assert current.candidates == ()
 
 
@@ -129,7 +132,7 @@ def test_candidate_generation_can_match_active_counterclaim_value(tmp_path) -> N
 
         assert len(result.candidates) == 1
         assert result.candidates[0].operative_claim_id == operative.id
-        assert result.candidates[0].matched_terms == ("freebsd",)
+        assert result.candidates[0].signals == ("term:freebsd",)
 
 
 def test_candidate_generation_tokenizes_nested_canonical_values(tmp_path) -> None:
@@ -145,7 +148,7 @@ def test_candidate_generation_tokenizes_nested_canonical_values(tmp_path) -> Non
 
         assert len(result.candidates) == 1
         assert result.candidates[0].operative_claim_id == claim.id
-        assert result.candidates[0].matched_terms == ("4090", "gpu")
+        assert result.candidates[0].signals == ("term:4090", "term:gpu")
 
 
 def test_candidate_generation_is_deterministic_and_honors_limit(tmp_path) -> None:
@@ -172,9 +175,11 @@ def test_candidate_generation_is_deterministic_and_honors_limit(tmp_path) -> Non
         assert len(first.candidates) == 1
         assert first.candidates[0].operative_claim_id == alpha.id
         assert first.generator_version == "lexical-v0.1"
+        with pytest.raises(AttributeError):
+            generator.predicate_weight = 99  # type: ignore[attr-defined]
 
 
-def test_candidate_generation_rejects_empty_lexical_query_and_invalid_limit(
+def test_candidate_generation_rejects_empty_query_bad_limit_and_mutated_query(
     tmp_path,
 ) -> None:
     path = tmp_path / "sarmady.db"
@@ -182,8 +187,34 @@ def test_candidate_generation_rejects_empty_lexical_query_and_invalid_limit(
         generator = LexicalCandidateGenerator(store)
         with pytest.raises(ValueError, match="lexical term"):
             generator.generate(_request("___ ---"))
-        with pytest.raises(ValueError, match="limit"):
+        with pytest.raises(ValueError, match="positive integer"):
             generator.generate(_request("memory"), limit=0)
+        with pytest.raises(ValueError, match="positive integer"):
+            generator.generate(_request("memory"), limit=True)
+
+        mutated = _request("memory")
+        object.__setattr__(mutated, "query", 42)
+        with pytest.raises(TypeError, match="query must be a string"):
+            generator.generate(mutated)
+
+
+def test_generic_candidate_contract_allows_nonlexical_finite_scores() -> None:
+    candidate = ContextCandidate(
+        subject="machine:primary",
+        predicate="memory_gb",
+        operative_claim_id=uuid4(),
+        rank_score=-0.125,
+    )
+    assert candidate.rank_score == -0.125
+    assert candidate.signals == ()
+
+    with pytest.raises(ValueError, match="finite"):
+        ContextCandidate(
+            subject="machine:primary",
+            predicate="memory_gb",
+            operative_claim_id=uuid4(),
+            rank_score=float("nan"),
+        )
 
 
 def test_candidate_set_is_immutable_and_snapshot_enumerator_closes(tmp_path) -> None:
@@ -199,3 +230,25 @@ def test_candidate_set_is_immutable_and_snapshot_enumerator_closes(tmp_path) -> 
             assert snapshot.semantic_keys() == (("machine:primary", "memory_gb"),)
         with pytest.raises(RuntimeError, match="snapshot is closed"):
             snapshot.semantic_keys()
+
+
+def test_semantic_key_enumeration_remains_pinned_during_concurrent_write(
+    tmp_path,
+) -> None:
+    path = tmp_path / "sarmady.db"
+    with SQLiteCanonicalStore(path) as reader:
+        _observe(reader, predicate="memory_gb", value=64)
+
+        with reader.context_read_snapshot() as snapshot:
+            assert snapshot.semantic_keys() == (("machine:primary", "memory_gb"),)
+
+            with SQLiteCanonicalStore(path) as writer:
+                _observe(writer, predicate="os", value="linux", at=T0 + timedelta(minutes=1))
+
+            assert snapshot.semantic_keys() == (("machine:primary", "memory_gb"),)
+            assert (
+                snapshot.resolved_state("machine:primary", "os").status
+                is ResolutionStatus.MISSING
+            )
+
+        assert reader.frontier() > snapshot.frontier
