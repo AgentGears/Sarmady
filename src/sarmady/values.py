@@ -1,37 +1,45 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from types import MappingProxyType
 from typing import Any
 
 
-class FrozenMapping(Mapping[str, Any]):
+class FrozenMapping(Mapping[str, Any], tuple):
     """Deeply immutable mapping for canonical JSON-like semantic values.
 
-    This is deliberately not a ``dict`` subclass: unbound built-in dict
-    mutators therefore cannot bypass the immutability boundary.
+    The backing representation is the tuple object itself, so admitted values
+    expose no mutable instance attributes that can be rewritten through
+    ``object.__setattr__`` or by calling ``__init__`` again. This is also
+    deliberately not a ``dict`` subclass: unbound built-in dict mutators cannot
+    bypass the immutability boundary.
     """
 
-    __slots__ = ("_items", "_index")
+    __slots__ = ()
 
-    def __init__(self, source: Mapping[str, Any]) -> None:
-        normalized: dict[str, Any] = {}
+    def __new__(cls, source: Mapping[str, Any]) -> FrozenMapping:
+        normalized: list[tuple[str, Any]] = []
         for key, item in source.items():
             if not isinstance(key, str):
                 raise TypeError("semantic mapping keys must be strings")
-            normalized[key] = freeze_value(item)
-        items = tuple(normalized.items())
-        object.__setattr__(self, "_items", items)
-        object.__setattr__(self, "_index", MappingProxyType(dict(items)))
+            normalized.append((key, freeze_value(item)))
+        return tuple.__new__(cls, tuple(normalized))
+
+    def __init__(self, source: Mapping[str, Any]) -> None:
+        # All state is constructed immutably in __new__. Re-entering __init__
+        # on an admitted value is therefore harmless and cannot replace state.
+        del source
 
     def __getitem__(self, key: str) -> Any:
-        return self._index[key]
+        for candidate, value in tuple.__iter__(self):
+            if candidate == key:
+                return value
+        raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._index)
+        return (key for key, _ in tuple.__iter__(self))
 
     def __len__(self) -> int:
-        return len(self._index)
+        return tuple.__len__(self)
 
     @staticmethod
     def _immutable(*args: Any, **kwargs: Any) -> None:
@@ -44,7 +52,7 @@ class FrozenMapping(Mapping[str, Any]):
         raise TypeError("frozen semantic value is immutable")
 
     def __repr__(self) -> str:
-        return f"FrozenMapping({dict(self._items)!r})"
+        return f"FrozenMapping({dict(self.items())!r})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Mapping):
