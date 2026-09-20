@@ -65,3 +65,29 @@ def test_absent_memory_target_lookup_forces_conservative_dependency(tmp_path) ->
             assert not snapshot.is_active_memory_target("Claim", target_id)
 
         assert "semantic:*" in snapshot.dependency_keys
+
+
+def test_context_snapshot_proxy_rejects_all_semantic_reads_after_close(tmp_path) -> None:
+    path = tmp_path / "closed-context-snapshot.db"
+    object_id = uuid4()
+
+    with SQLiteCanonicalStore(path) as store:
+        with store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
+
+        assert snapshot.frontier == frontier
+        assert snapshot.dependency_keys == ()
+
+        # Once the pinned SQLite transaction has closed, the proxy is only a
+        # completed lineage receipt. It must not perform any read against the
+        # now-current database while still carrying the old frontier label.
+        with pytest.raises(RuntimeError, match="context read snapshot is closed"):
+            snapshot.resolved_state("subject", "predicate")
+        with pytest.raises(RuntimeError, match="context read snapshot is closed"):
+            snapshot.claim(object_id)
+        with pytest.raises(RuntimeError, match="context read snapshot is closed"):
+            snapshot.evidence(object_id)
+        with pytest.raises(RuntimeError, match="context read snapshot is closed"):
+            snapshot.memory_entry_for_target("Claim", object_id)
+        with pytest.raises(RuntimeError, match="context read snapshot is closed"):
+            snapshot.is_active_memory_target("Claim", object_id)
