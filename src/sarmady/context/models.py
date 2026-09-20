@@ -46,15 +46,13 @@ class ContextRequest:
     goal_ref: UUID | None = None
     task_ref: UUID | None = None
     coverage_requirements: tuple[str, ...] = ()
-    exact_requirements: tuple[ExactCoverageRequirement, ...] = ()
     known_at: datetime | None = None
     valid_at: datetime | None = None
+    exact_requirements: tuple[ExactCoverageRequirement, ...] = ()
 
     def __post_init__(self) -> None:
         if self.token_budget <= 0:
             raise ValueError("token_budget must be positive")
-        if self.latency_budget_ms is not None and self.latency_budget_ms <= 0:
-            raise ValueError("latency_budget_ms must be positive when provided")
         requirement_keys = [item.key for item in self.exact_requirements]
         if len(requirement_keys) != len(set(requirement_keys)):
             raise ValueError("exact coverage requirement keys must be unique")
