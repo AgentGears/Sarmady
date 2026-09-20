@@ -13,11 +13,19 @@ from .epistemic_store import EpistemicStoreMixin
 from .identity_store import IdentityStoreMixin
 from .memory_store import MemoryStoreMixin
 from .projection_store import ProjectionStoreMixin
+from .reasoning_store import ReasoningStoreMixin
 from .schema import initialize_schema
 
 
-class SQLiteCanonicalStore(IdentityStoreMixin, EpistemicStoreMixin, MemoryStoreMixin, ProjectionStoreMixin, CognitiveStoreMixin):
-    """SQLite adapter for Sarmady's canonical M1 semantic state."""
+class SQLiteCanonicalStore(
+    IdentityStoreMixin,
+    EpistemicStoreMixin,
+    MemoryStoreMixin,
+    ProjectionStoreMixin,
+    ReasoningStoreMixin,
+    CognitiveStoreMixin,
+):
+    """SQLite adapter for Sarmady's canonical semantic and cognitive state."""
 
     def __init__(self, path: str | Path):
         self.path = str(path)
