@@ -87,12 +87,19 @@ def test_legacy_memory_admission_gets_created_event_during_schema_v3_upgrade(tmp
     db.close()
 
     with SQLiteCanonicalStore(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
         events = store.memory_lifecycle_events(memory_id)
         assert len(events) == 1
         assert events[0].event_kind is MemoryLifecycleEventKind.CREATED
         assert events[0].source == "schema-migration-v2"
         assert store.rebuild_memory_lifecycle_states() == 1
+        tables = {
+            row[0]
+            for row in store.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert "reasoning_policies" in tables
 
 
 

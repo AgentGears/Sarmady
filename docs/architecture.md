@@ -24,7 +24,7 @@ Context Engine
      v
 ContextProjection (immutable snapshot)
      |
-CognitiveRequest
+CognitiveRequest ----> ReasoningPolicy (immutable semantic contract)
      |
 +----+----------+-----------+
 |               |           |
@@ -78,10 +78,10 @@ Domain contracts must not import storage/services. Domain packages export semant
 
 ## Model independence
 
-The kernel must not know about system prompts, temperatures, tokenizers, OpenAI message arrays, or specific model names. A persisted `Agent` is independent of every model binding. The cognitive runtime reloads a durable `ContextProjection`, materializes a structured semantic `ModelInput`, and gives only that input to a provider-neutral `ModelAdapter`. The adapter has no canonical-store handle. Each attempt is durably recorded as a `ModelInvocation`; returned `GeneratedArtifact` objects are durable but remain non-authoritative until a governed adoption step.
+The kernel must not know about system prompts, temperatures, tokenizers, OpenAI message arrays, or specific model names. A persisted `Agent` is independent of every model binding. A `ReasoningPolicy` is likewise provider-neutral: it expresses versioned stages and reasoning obligations rather than a provider prompt. The cognitive runtime reloads a durable `ContextProjection`, materializes a structured semantic `ModelInput` containing any selected policy and its fingerprint, and gives only that input to a provider-neutral `ModelAdapter`. The adapter has no canonical-store handle. Each attempt is durably recorded as a `ModelInvocation`; returned `GeneratedArtifact` objects are durable but remain non-authoritative until a governed adoption step.
 
 Freshness is fenced twice: when the cognitive request is admitted and again under the write lock immediately before invocation start. A later state change may make the historical projection stale while a model call is already running; that does not rewrite the invocation snapshot, and any consequential adoption must revalidate current state separately.
 
 ## Storage independence
 
-The ontology is not the database schema. SQLite is the first implementation. Schema v3 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.
+The ontology is not the database schema. SQLite is the first implementation. Schema v4 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.

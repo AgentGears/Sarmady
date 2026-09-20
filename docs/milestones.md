@@ -13,7 +13,7 @@ Completed slices:
 - compile an immutable context projection pinned to a canonical frontier;
 - admit correction/supersession as new claims without deleting old evidence;
 - distinguish knowledge/record time from world-valid time;
-- reconstruct current heads from canonical history after materialized-state loss;
+- reconstruct current heads from canonical history after materialization loss;
 - represent explicit contradiction as contested state and carry counterevidence into context;
 - persist memory lifecycle events with `SEEN != USED` semantics and rebuild lifecycle materialization;
 - pin context reads to a transactionally consistent SQLite snapshot;
@@ -35,9 +35,26 @@ Deferred to later milestones:
 
 The exact compiler remains deliberate: retrieval intelligence must not hide persistence, temporal, conflict, or recovery defects.
 
-## M2 — Cognitive orchestration
+## M2 — Cognitive orchestration — in progress
 
-Reasoning-policy execution, cognitive routing experiments, iterative context requests, semantic/lexical retrieval, and adaptive coverage expansion. Provider-specific model adapters may be added here without changing the M1 runtime contract.
+Completed slices:
+
+- immutable versioned reasoning-policy contracts with deterministic fingerprints;
+- source lineage to the precursor Reasoning-Engine policy definitions;
+- durable policy registration that cannot silently rebind a policy ID;
+- structured policy delivery through `ModelInput`;
+- cognitive-request provenance to the exact registered policy;
+- policy registration without advancing or invalidating epistemic context.
+
+Still deferred within M2:
+
+- adaptive reasoning-policy routing and routing validation;
+- iterative context requests during reasoning;
+- semantic/lexical retrieval;
+- adaptive coverage expansion;
+- provider-specific model renderers/adapters.
+
+Adaptive routing remains experimental until separately validated. Provider-specific model adapters may be added without changing the M1 model-independence contract.
 
 ## M3 — Governed action
 

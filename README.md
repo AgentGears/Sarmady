@@ -6,7 +6,7 @@ The project separates **canonical semantic state** from **derived cognitive comp
 
 ## Status
 
-Sarmady is at **Canonical Ontology v0.1 / M1 persistent cognition complete**.
+Sarmady is at **Canonical Ontology v0.1 / M1 persistent cognition complete / M2 cognitive orchestration in progress**.
 
 The current executable slice now proves:
 
@@ -23,9 +23,11 @@ The current executable slice now proves:
 - full context-request/projection rehydration across restart;
 - provider-neutral model adapters with durable invocation/artifact records;
 - model-swap continuity over the same persisted semantic context;
-- stale-context fencing immediately before model invocation.
+- stale-context fencing immediately before model invocation;
+- immutable, versioned `DIRECT` / `COMPACT` / `FULL` reasoning-policy contracts with source provenance and fingerprints;
+- structured reasoning policy delivery to model adapters without making provider prompts canonical state.
 
-Semantic/lexical retrieval, general entity resolution/extraction, adaptive coverage planning, reasoning routing, and external action execution remain deliberately outside M1. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
+Semantic/lexical retrieval, general entity resolution/extraction, adaptive coverage planning, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
 
 ## Source lineage
 
@@ -63,4 +65,4 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, and `docs/code-survival.md` before adding runtime behavior.
+See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, and `docs/code-survival.md` before adding runtime behavior.

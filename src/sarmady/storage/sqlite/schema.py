@@ -6,18 +6,18 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, 2, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, 3, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
         )
 
-    # v0-v2 databases can be upgraded in place because v3 only adds tables
+    # v0-v3 databases can be upgraded in place because v4 only adds tables
     # and indexes; existing canonical columns retain their semantics.
     db.executescript(
         f"""
@@ -156,6 +156,18 @@ def initialize_schema(db: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS reasoning_policies (
+            id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            stages_json TEXT NOT NULL,
+            requirements_json TEXT NOT NULL,
+            source_ref TEXT NOT NULL,
+            source_sha256 TEXT,
+            fingerprint TEXT NOT NULL UNIQUE,
+            registered_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS cognitive_requests (

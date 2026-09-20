@@ -23,7 +23,7 @@ Agent
 
 ## Adapter boundary
 
-A `ModelAdapter` receives only `ModelInput`: agent/request/projection identifiers, the pinned snapshot identifier, operation/reasoning-policy metadata, structured context items, and conflict references. It does not receive the canonical store, credentials, authority objects, or mutation capabilities.
+A `ModelAdapter` receives only `ModelInput`: agent/request/projection identifiers, the pinned snapshot identifier, operation metadata, the structured immutable `ReasoningPolicy` (when selected) plus its fingerprint, structured context items, and conflict references. It does not receive the canonical store, credentials, authority objects, or mutation capabilities.
 
 Provider-specific prompts, message arrays, tokenizers, temperatures, API clients, and response formats live behind the adapter.
 
@@ -43,4 +43,4 @@ A process may close, reopen the same durable store, load the same agent and cont
 
 ## Non-goals
 
-This contract does not yet define provider SDKs, prompt templates, streaming, reasoning-policy implementations, model routing, token accounting, adoption of generated claims, or external actions.
+This contract does not define provider SDKs, prompt templates, streaming, adaptive model routing, token accounting, adoption of generated claims, or external actions. Reasoning-policy semantics are defined separately in `docs/reasoning-policy.md`; provider-specific rendering remains outside the kernel.
