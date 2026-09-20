@@ -211,3 +211,37 @@ def test_lowercase_policy_registration_is_idempotent_against_legacy_uppercase_ro
         ).fetchone()
         assert row["source_sha256"] == uppercase_digest
         assert row["fingerprint"] == legacy_fingerprint
+
+
+def test_legacy_policy_object_is_canonicalized_before_write_to_fresh_store(
+    tmp_path,
+) -> None:
+    source_path = tmp_path / "legacy-policy-source.db"
+    destination_path = tmp_path / "fresh-policy-destination.db"
+    policy_id = "legacy:uppercase:copy:v1"
+    uppercase_digest = "C" * 64
+
+    with SQLiteCanonicalStore(source_path) as source:
+        legacy_fingerprint = _insert_legacy_uppercase_policy(
+            source,
+            policy_id,
+            uppercase_digest,
+        )
+        legacy_object = source.reasoning_policy(policy_id)
+        assert legacy_object is not None
+        assert legacy_object.source_sha256 == uppercase_digest
+        assert legacy_object.fingerprint == legacy_fingerprint
+
+    with SQLiteCanonicalStore(destination_path) as destination:
+        registered = destination.register_reasoning_policy(
+            legacy_object,
+            registered_at=T0 + timedelta(minutes=2),
+        )
+        assert registered.source_sha256 == uppercase_digest.lower()
+        assert registered.fingerprint != legacy_fingerprint
+        row = destination.db.execute(
+            "SELECT source_sha256, fingerprint FROM reasoning_policies WHERE id = ?",
+            (policy_id,),
+        ).fetchone()
+        assert row["source_sha256"] == uppercase_digest.lower()
+        assert row["fingerprint"] == registered.fingerprint
