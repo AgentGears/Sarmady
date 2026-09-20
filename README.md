@@ -6,7 +6,21 @@ The project separates **canonical semantic state** from **derived cognitive comp
 
 ## Status
 
-Sarmady is at **Canonical Ontology v0.1**. The current code is intentionally small: it defines the first semantic contracts and executable invariants before importing larger mechanisms from the source research projects.
+Sarmady is at **Canonical Ontology v0.1 / M1 persistent cognition in progress**.
+
+The current executable slice now proves:
+
+- durable event → evidence → claim → memory admission;
+- explicit correction/supersession without deleting prior evidence;
+- separate world-valid time and knowledge/record time;
+- canonical reconstruction of current heads after materialized-state loss;
+- explicit contested state for contradictions;
+- append-only memory lifecycle telemetry with `SEEN != USED`;
+- transactionally pinned SQLite read snapshots;
+- dependency-aware context-projection invalidation;
+- store close/reopen recovery.
+
+Semantic retrieval, entity resolution, general extraction, LLM invocation, reasoning routing, and external action execution remain deliberately outside this slice.
 
 ## Source lineage
 
@@ -44,4 +58,4 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, and `docs/code-survival.md` before adding runtime behavior.
+See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, and `docs/code-survival.md` before adding runtime behavior.

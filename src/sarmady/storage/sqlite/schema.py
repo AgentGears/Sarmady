@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import sqlite3
+from uuid import NAMESPACE_URL, uuid5
+
+from sarmady.memory import MemoryLifecycleEventKind
+
+
+SCHEMA_VERSION = 2
+
+
+def initialize_schema(db: sqlite3.Connection) -> None:
+    version = int(db.execute("PRAGMA user_version").fetchone()[0])
+    if version not in {0, 1, SCHEMA_VERSION}:
+        raise RuntimeError(
+            f"unsupported Sarmady SQLite schema version {version}; "
+            f"expected <= {SCHEMA_VERSION}"
+        )
+
+    db.executescript(
+        f"""
+        CREATE TABLE IF NOT EXISTS semantic_log (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            ref_id TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_semantic_log_object
+            ON semantic_log(kind, ref_id);
+
+        CREATE TABLE IF NOT EXISTS events (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            recorded_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS evidence (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id),
+            source_ref TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            digest TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS claims (
+            id TEXT PRIMARY KEY,
+            subject TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            recorded_at TEXT NOT NULL,
+            evidence_refs_json TEXT NOT NULL,
+            valid_from TEXT,
+            valid_to TEXT,
+            derivation_ref TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_claims_subject_predicate
+            ON claims(subject, predicate);
+
+        CREATE TABLE IF NOT EXISTS claim_relations (
+            id TEXT PRIMARY KEY,
+            source_claim_id TEXT NOT NULL REFERENCES claims(id),
+            target_claim_id TEXT NOT NULL REFERENCES claims(id),
+            kind TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS claim_heads (
+            subject TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            claim_id TEXT NOT NULL REFERENCES claims(id),
+            PRIMARY KEY(subject, predicate)
+        );
+
+        CREATE TABLE IF NOT EXISTS memory_entries (
+            id TEXT PRIMARY KEY,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            lifecycle TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_target
+            ON memory_entries(target_type, target_id, lifecycle);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_unique_target
+            ON memory_entries(target_type, target_id);
+
+        CREATE TABLE IF NOT EXISTS memory_lifecycle_events (
+            id TEXT PRIMARY KEY,
+            memory_entry_id TEXT NOT NULL REFERENCES memory_entries(id),
+            event_kind TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_entry
+            ON memory_lifecycle_events(memory_entry_id, occurred_at);
+
+        CREATE TABLE IF NOT EXISTS context_projections (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            snapshot_id TEXT NOT NULL,
+            canonical_frontier INTEGER NOT NULL,
+            manifest_digest TEXT NOT NULL,
+            compiler_version TEXT NOT NULL,
+            coverage_status TEXT NOT NULL,
+            stale INTEGER NOT NULL DEFAULT 0 CHECK(stale IN (0, 1)),
+            stale_reason TEXT,
+            stale_at_frontier INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS context_projection_dependencies (
+            projection_id TEXT NOT NULL
+                REFERENCES context_projections(id) ON DELETE CASCADE,
+            dependency_key TEXT NOT NULL,
+            PRIMARY KEY(projection_id, dependency_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_projection_dependency_key
+            ON context_projection_dependencies(dependency_key);
+
+        PRAGMA user_version = {SCHEMA_VERSION};
+        """
+    )
+    _backfill_legacy_memory_created_events(db)
+
+
+def _backfill_legacy_memory_created_events(db: sqlite3.Connection) -> None:
+    rows = db.execute(
+        """
+        SELECT m.id, m.created_at
+        FROM memory_entries m
+        LEFT JOIN memory_lifecycle_events e
+          ON e.memory_entry_id = m.id
+        WHERE e.id IS NULL
+        ORDER BY m.rowid
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        for row in rows:
+            event_id = uuid5(
+                NAMESPACE_URL,
+                f"sarmady:memory-created:{row['id']}",
+            )
+            db.execute(
+                """
+                INSERT OR IGNORE INTO memory_lifecycle_events
+                (id, memory_entry_id, event_kind, occurred_at, source, reason)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(event_id),
+                    row["id"],
+                    MemoryLifecycleEventKind.CREATED.value,
+                    row["created_at"],
+                    "schema-migration-v2",
+                    "backfill legacy memory admission",
+                ),
+            )
+            exists = db.execute(
+                """
+                SELECT 1 FROM semantic_log
+                WHERE kind = 'MemoryLifecycleEvent' AND ref_id = ?
+                """,
+                (str(event_id),),
+            ).fetchone()
+            if exists is None:
+                db.execute(
+                    """
+                    INSERT INTO semantic_log(kind, ref_id, recorded_at)
+                    VALUES ('MemoryLifecycleEvent', ?, ?)
+                    """,
+                    (str(event_id), row["created_at"]),
+                )
+    except BaseException:
+        db.rollback()
+        raise
+    else:
+        db.commit()

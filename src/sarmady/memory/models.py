@@ -6,6 +6,11 @@ from enum import Enum
 from uuid import UUID
 
 
+def _require_aware(value: datetime, field_name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+
+
 class MemoryKind(str, Enum):
     SEMANTIC = "SEMANTIC"
     EPISODIC = "EPISODIC"
@@ -27,6 +32,17 @@ class MemoryAccessKind(str, Enum):
     USED = "USED"
 
 
+class MemoryLifecycleEventKind(str, Enum):
+    CREATED = "CREATED"
+    SEEN = "SEEN"
+    USED = "USED"
+    CONSOLIDATED = "CONSOLIDATED"
+    ARCHIVED = "ARCHIVED"
+    RESTORED = "RESTORED"
+    TOMBSTONED = "TOMBSTONED"
+    DELETED = "DELETED"
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryEntry:
     """Admission of a canonical artifact into long-term recall, not a second truth record."""
@@ -38,15 +54,25 @@ class MemoryEntry:
     created_at: datetime
     lifecycle: MemoryLifecycle = MemoryLifecycle.ACTIVE
 
+    def __post_init__(self) -> None:
+        if not self.target_type:
+            raise ValueError("target_type is required")
+        _require_aware(self.created_at, "created_at")
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryLifecycleEvent:
     id: UUID
     memory_entry_id: UUID
-    event_kind: str
+    event_kind: MemoryLifecycleEventKind
     occurred_at: datetime
     source: str
     reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.source:
+            raise ValueError("source is required")
+        _require_aware(self.occurred_at, "occurred_at")
 
 
 @dataclass(frozen=True, slots=True)

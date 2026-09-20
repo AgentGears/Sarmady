@@ -26,7 +26,6 @@ def test_claim_survives_reopen_and_compiles_bounded_context(tmp_path) -> None:
         frontier_before_restart = store.frontier()
         assert frontier_before_restart > 0
 
-    # New store object stands in for process restart; no in-memory state survives.
     with SQLiteCanonicalStore(path) as reopened:
         current = reopened.current_claim("machine:primary", "memory_gb")
         assert current is not None
@@ -45,7 +44,7 @@ def test_claim_survives_reopen_and_compiles_bounded_context(tmp_path) -> None:
             predicate="memory_gb",
         )
         assert projection.coverage_status is CoverageStatus.COMPLETE
-        assert projection.snapshot_id == f"sqlite:{reopened.frontier()}"
+        assert projection.snapshot_id == f"sqlite:{projection.canonical_frontier}"
         assert [item.ref_type for item in projection.items] == ["Claim", "Evidence"]
         assert projection.items[0].ref_id == claim_64.id
 
@@ -106,8 +105,9 @@ def test_supersession_preserves_history_and_moves_only_materialized_head(tmp_pat
         assert second_projection.items[0].ref_id == claim_96.id
         assert first_projection.snapshot_id != second_projection.snapshot_id
         assert first_projection.manifest_digest != second_projection.manifest_digest
+        assert store.projection_is_stale(first_projection.id)
+        assert not store.projection_is_stale(second_projection.id)
 
-    # The corrected current state and full history survive another restart.
     with SQLiteCanonicalStore(path) as reopened:
         current = reopened.current_claim("machine:primary", "memory_gb")
         assert current is not None
