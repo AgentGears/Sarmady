@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 from sarmady.context import ContextRequest, CoverageStatus, ExactContextCompiler
-from sarmady.epistemic import ClaimRelationKind, EpistemicMemoryService
+from sarmady.epistemic import ClaimRelationKind
+from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
 
@@ -108,5 +109,7 @@ def test_supersession_preserves_history_and_moves_only_materialized_head(tmp_pat
 
     # The corrected current state and full history survive another restart.
     with SQLiteCanonicalStore(path) as reopened:
-        assert reopened.current_claim("machine:primary", "memory_gb").value == 96
+        current = reopened.current_claim("machine:primary", "memory_gb")
+        assert current is not None
+        assert current.value == 96
         assert [claim.value for claim in reopened.claim_history("machine:primary", "memory_gb")] == [64, 96]
