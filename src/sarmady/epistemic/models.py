@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Any, Mapping
 from uuid import UUID
 
+from sarmady.values import freeze_value
+
 
 def _require_aware(value: datetime, field_name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -41,6 +43,7 @@ class Event:
         _require_aware(self.recorded_at, "recorded_at")
         if self.recorded_at < self.occurred_at:
             raise ValueError("recorded_at cannot precede occurred_at")
+        object.__setattr__(self, "payload", freeze_value(self.payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,7 @@ class Claim:
             _require_aware(self.valid_to, "valid_to")
         if self.valid_from is not None and self.valid_to is not None and self.valid_to <= self.valid_from:
             raise ValueError("valid_to must be later than valid_from")
+        object.__setattr__(self, "value", freeze_value(self.value))
 
 
 @dataclass(frozen=True, slots=True)
