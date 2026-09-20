@@ -1,6 +1,6 @@
-# Context Retrieval v0.1
+# Context Retrieval v0.2
 
-Sarmady separates **candidate relevance** from **context sufficiency**.
+Sarmady separates **candidate relevance** from **planned information obligations** from **context sufficiency**.
 
 The M2 lexical candidate slice is a derived discovery mechanism. It helps the context system identify semantic keys that may matter to a `ContextRequest`; it does not decide that a requirement has been satisfied and it does not mutate canonical memory.
 
@@ -9,11 +9,21 @@ The M2 lexical candidate slice is a derived discovery mechanism. It helps the co
 `LexicalCandidateGenerator` consumes a `ContextRequest` value and returns an immutable, ephemeral `CandidateSet` containing:
 
 - the request ID;
+- a deterministic fingerprint of the complete source-request semantics;
 - the pinned SQLite snapshot/frontier used for discovery;
 - ranked `ContextCandidate` records;
-- the generator version.
+- the generator version;
+- an `is_exhaustive` flag.
 
 The generator does not persist the request or candidate set. Persistence begins only at later durable boundaries such as `ContextProjection` registration.
+
+The request fingerprint binds an ephemeral candidate receipt to the exact request semantics that produced it. An ID match alone is insufficient because candidate generation does not persist the source request; a caller could otherwise reconstruct or mutate a request under the same UUID and reuse candidates produced for different semantics.
+
+`is_exhaustive` has a deliberately narrow meaning:
+
+> the generator knows that no additional candidate satisfying **its own matching rule** was dropped from this snapshot result.
+
+It does **not** claim perfect retrieval recall. `lexical-v0.2` computes every lexical match before applying `limit`, so it can distinguish a complete result from a truncated top-k result. A later approximate/vector retriever may conservatively report `False` unless its own completeness semantics are provable.
 
 Each candidate identifies one semantic `(subject, predicate)` key and the operative claim resolved for the request's `known_at` / `valid_at` boundary. The generic candidate contract carries a finite generator-local `rank_score` plus optional diagnostic `signals`. Those values are meaningful only within a generator/version; they are not calibrated probabilities and must not be compared across heterogeneous retrievers.
 
@@ -26,6 +36,7 @@ It does **not** mean:
 - the context is complete;
 - the claim is true merely because it matched;
 - a coverage obligation is satisfied;
+- the candidate set is exhaustive merely because it is short;
 - the candidate should be admitted to or strengthened in memory;
 - the candidate should be persisted as canonical state.
 
@@ -47,7 +58,7 @@ Candidate generation performs reads only. It does not emit `SEEN` or `USED` life
 
 ## Lexical scoring
 
-Version `lexical-v0.1` uses transparent exact token matching:
+Version `lexical-v0.2` preserves the v0.1 ranking profile while strengthening candidate-receipt semantics with request binding and exhaustiveness metadata:
 
 - predicate-term match: weight 5;
 - subject-term match: weight 3;
@@ -61,16 +72,20 @@ Candidates with no matching term are omitted. Ranking is deterministic for a fix
 
 These weights are an implementation baseline, not a learned relevance model or calibrated probability.
 
+## Relationship to requirement planning
+
+Candidate retrieval and requirement planning are separate stages. `ControlledRequirementPlanner` may consume an exhaustive, request-bound candidate set and propose exact obligations, but candidate score alone never authorizes a hard semantic constraint. Ambiguity or non-exhaustive retrieval causes abstention rather than over-resolution. See `docs/requirement-planning.md`.
+
 ## Deliberate limitations
 
 This slice does not implement:
 
 - stemming, synonyms, fuzzy matching, BM25, embeddings, or vector search;
-- automatic natural-language-to-coverage-requirement planning;
+- general multi-intent natural-language planning;
 - adaptive coverage expansion;
 - candidate persistence or a durable retrieval index;
 - token-budget packing;
 - memory strengthening on retrieval;
 - a claim that lexical ranking alone produces sufficient context.
 
-The current implementation scans the visible semantic-key space and is therefore an O(N) correctness baseline, not the final indexing strategy. A later semantic or indexed retriever should emit the same generator-neutral candidate contracts where practical, so retrieval machinery remains replaceable while coverage and projection semantics stay stable.
+The current implementation scans the visible semantic-key space and is therefore an O(N) correctness baseline, not the final indexing strategy. A later semantic or indexed retriever should emit the same generator-neutral candidate contracts where practical, so retrieval machinery remains replaceable while planning, coverage, and projection semantics stay stable.
