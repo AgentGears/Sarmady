@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator
@@ -15,6 +16,23 @@ from .memory_store import MemoryStoreMixin
 from .projection_store import ProjectionStoreMixin
 from .reasoning_store import ReasoningStoreMixin
 from .schema import initialize_schema
+
+
+@dataclass(slots=True)
+class _ContextDependencyCapture:
+    frontier: int
+    _store_token: object = field(repr=False)
+    _keys: set[str] = field(default_factory=set, repr=False)
+    _closed: bool = field(default=False, repr=False)
+    _consumed: bool = field(default=False, repr=False)
+
+    @property
+    def dependency_keys(self) -> tuple[str, ...]:
+        if not self._closed:
+            raise RuntimeError(
+                "context dependency keys are available only after the snapshot closes"
+            )
+        return tuple(sorted(self._keys))
 
 
 class SQLiteCanonicalStore(
@@ -40,6 +58,8 @@ class SQLiteCanonicalStore(
         self.db.execute("PRAGMA synchronous = FULL")
         self.db.execute("PRAGMA busy_timeout = 5000")
         initialize_schema(self.db)
+        self._context_dependency_token = object()
+        self._active_context_dependency_capture: _ContextDependencyCapture | None = None
 
     def close(self) -> None:
         self.db.close()
@@ -75,6 +95,59 @@ class SQLiteCanonicalStore(
             yield frontier
         finally:
             self.db.rollback()
+
+    @contextmanager
+    def context_read_snapshot(self) -> Iterator[_ContextDependencyCapture]:
+        """Pin context reads and capture store-mediated semantic dependencies.
+
+        The returned capture is a one-shot lineage proof for projection
+        registration. Context compilers should obtain canonical state through
+        store methods while this scope is active rather than reading ``db``
+        directly, so every semantic dependency can be observed automatically.
+        """
+
+        if self._active_context_dependency_capture is not None:
+            raise RuntimeError("nested context dependency capture is not supported")
+
+        with self.read_snapshot() as frontier:
+            capture = _ContextDependencyCapture(
+                frontier=frontier,
+                _store_token=self._context_dependency_token,
+            )
+            self._active_context_dependency_capture = capture
+            try:
+                yield capture
+            finally:
+                self._active_context_dependency_capture = None
+                capture._closed = True
+
+    def _record_context_dependency(self, dependency_key: str) -> None:
+        capture = self._active_context_dependency_capture
+        if capture is not None:
+            capture._keys.add(dependency_key)
+
+    def _consume_context_dependency_capture(
+        self,
+        capture: object | None,
+        *,
+        frontier: int,
+    ) -> frozenset[str] | None:
+        if capture is None:
+            return None
+        if not isinstance(capture, _ContextDependencyCapture):
+            raise ValueError("invalid context dependency capture")
+        if capture._store_token is not self._context_dependency_token:
+            raise ValueError("context dependency capture belongs to another store")
+        if not capture._closed:
+            raise ValueError("context dependency capture is still active")
+        if capture._consumed:
+            raise ValueError("context dependency capture has already been consumed")
+        if capture.frontier != frontier:
+            raise ValueError(
+                "context dependency capture frontier does not match projection frontier"
+            )
+        capture._consumed = True
+        return frozenset(capture._keys)
 
     def _log(self, kind: str, ref_id: UUID, recorded_at: datetime) -> None:
         self.db.execute(
