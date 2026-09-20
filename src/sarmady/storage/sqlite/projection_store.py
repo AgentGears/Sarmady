@@ -4,7 +4,13 @@ import json
 from datetime import datetime
 from uuid import UUID
 
-from sarmady.context.models import ContextItem, ContextProjection, ContextRequest, CoverageStatus
+from sarmady.context.models import (
+    ContextItem,
+    ContextProjection,
+    ContextRequest,
+    CoverageStatus,
+    ExactCoverageRequirement,
+)
 
 
 class ProjectionStoreMixin:
@@ -37,7 +43,21 @@ class ProjectionStoreMixin:
                     request.latency_budget_ms,
                     str(request.goal_ref) if request.goal_ref else None,
                     str(request.task_ref) if request.task_ref else None,
-                    json.dumps(list(request.coverage_requirements)),
+                    json.dumps(
+                        {
+                            "labels": list(request.coverage_requirements),
+                            "exact": [
+                                {
+                                    "key": item.key,
+                                    "subject": item.subject,
+                                    "predicate": item.predicate,
+                                    "role": item.role,
+                                }
+                                for item in request.exact_requirements
+                            ],
+                        },
+                        sort_keys=True,
+                    ),
                     request.known_at.isoformat() if request.known_at else None,
                     request.valid_at.isoformat() if request.valid_at else None,
                 ),
@@ -122,6 +142,24 @@ class ProjectionStoreMixin:
         ).fetchone()
         if row is None:
             return None
+        raw_coverage = json.loads(row["coverage_requirements_json"])
+        if isinstance(raw_coverage, list):
+            labels = tuple(raw_coverage)
+            exact = ()
+        elif isinstance(raw_coverage, dict):
+            labels = tuple(raw_coverage.get("labels", ()))
+            exact = tuple(
+                ExactCoverageRequirement(
+                    key=item["key"],
+                    subject=item["subject"],
+                    predicate=item["predicate"],
+                    role=item.get("role", "essential_now"),
+                )
+                for item in raw_coverage.get("exact", ())
+            )
+        else:
+            raise RuntimeError("invalid persisted coverage_requirements_json")
+
         return ContextRequest(
             id=UUID(row["id"]),
             query=row["query"],
@@ -129,9 +167,8 @@ class ProjectionStoreMixin:
             latency_budget_ms=row["latency_budget_ms"],
             goal_ref=UUID(row["goal_ref"]) if row["goal_ref"] else None,
             task_ref=UUID(row["task_ref"]) if row["task_ref"] else None,
-            coverage_requirements=tuple(
-                json.loads(row["coverage_requirements_json"])
-            ),
+            coverage_requirements=labels,
+            exact_requirements=exact,
             known_at=(
                 datetime.fromisoformat(row["known_at"])
                 if row["known_at"] else None

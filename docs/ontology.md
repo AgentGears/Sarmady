@@ -41,11 +41,13 @@ Claims carry both world-valid time (`valid_from`, `valid_to`) and knowledge/reco
 
 ## Context
 
-`ContextRequest` describes what a cognitive computation needs under task, policy, latency, temporal, and budget constraints. It may specify `known_at` and/or `valid_at`.
+`ContextRequest` describes what a cognitive computation needs under task, policy, latency, temporal, and budget constraints. It may specify `known_at` and/or `valid_at`. `ExactCoverageRequirement` names one required `(subject, predicate)` semantic address and a request-local requirement key; these typed obligations are separate from free-form coverage labels.
 
 `ContextItem` references canonical artifacts. `ContextProjection` is an immutable, provenance-bearing, coverage-aware projection pinned to a transactionally consistent semantic snapshot/frontier.
 
 A projection may later become **stale** when one of its recorded dependencies changes. Staleness is derived state; the projection itself remains immutable and auditable as a historical snapshot.
+
+Coverage status expresses sufficiency over explicit obligations, not retrieval relevance: `COMPLETE` means every typed requirement is satisfied, `PARTIAL` means some are satisfied, and `INSUFFICIENT` means none are satisfied. Explicit contradictions require the competing claims and their evidence to survive context gating before the affected requirement is complete.
 
 A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable projection are durably rehydratable. A model adapter receives a structured semantic `ModelInput` derived from the persisted projection; provider-specific rendering remains outside canonical state.
 

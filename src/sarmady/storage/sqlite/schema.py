@@ -6,19 +6,19 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, 2, 3, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, 3, 4, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
         )
 
-    # v0-v3 databases can be upgraded in place because v4 only adds tables
-    # and indexes; existing canonical columns retain their semantics.
+    # v0-v4 databases can be upgraded in place. v5 changes only the
+    # backwards-compatible JSON encoding inside coverage_requirements_json.
     db.executescript(
         f"""
         CREATE TABLE IF NOT EXISTS semantic_log (

@@ -44,13 +44,19 @@ Completed slices:
 - durable policy registration that cannot silently rebind a policy ID;
 - structured policy delivery through `ModelInput`;
 - cognitive-request provenance to the exact registered policy;
-- policy registration without advancing or invalidating epistemic context.
+- policy registration without advancing or invalidating epistemic context;
+- typed exact multi-key context requirements with one-snapshot compilation;
+- explicit `COMPLETE` / `PARTIAL` / `INSUFFICIENT` coverage semantics;
+- contradiction closure as a coverage obligation;
+- dependency invalidation across every required epistemic key;
+- backward-compatible persistence of pre-v5 label-only context requests.
 
 Still deferred within M2:
 
 - adaptive reasoning-policy routing and routing validation;
 - iterative context requests during reasoning;
-- semantic/lexical retrieval;
+- semantic/lexical candidate generation;
+- automatic natural-language-to-requirement planning;
 - adaptive coverage expansion;
 - provider-specific model renderers/adapters.
 

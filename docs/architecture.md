@@ -21,6 +21,7 @@ semantic admission
 ContextRequest
      |
 Context Engine
+ resolve exact obligations · coverage control
      v
 ContextProjection (immutable snapshot)
      |
@@ -50,7 +51,7 @@ EffectEvidence
 
 ## Logical planes
 
-The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** compiles a bounded working set from canonical and materialized state. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
+The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** compiles a bounded working set from canonical and materialized state. Coverage is an explicit sufficiency contract: candidate relevance alone cannot mark a projection complete, and multi-key requirements are resolved inside one pinned snapshot. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
 
 These are logical responsibilities, not mandatory microservices. A deployment may combine them in one process while preserving their contracts.
 
@@ -84,4 +85,4 @@ Freshness is fenced twice: when the cognitive request is admitted and again unde
 
 ## Storage independence
 
-The ontology is not the database schema. SQLite is the first implementation. Schema v4 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.
+The ontology is not the database schema. SQLite is the first implementation. Schema v5 uses WAL + `synchronous=FULL`, explicit write transactions, versioned schema metadata, and canonical semantic sequencing. Those mechanisms may be replaced as long as the same invariants remain true.

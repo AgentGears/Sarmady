@@ -87,7 +87,7 @@ def test_legacy_memory_admission_gets_created_event_during_schema_v3_upgrade(tmp
     db.close()
 
     with SQLiteCanonicalStore(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
         events = store.memory_lifecycle_events(memory_id)
         assert len(events) == 1
         assert events[0].event_kind is MemoryLifecycleEventKind.CREATED
