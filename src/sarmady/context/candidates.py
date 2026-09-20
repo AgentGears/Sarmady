@@ -7,7 +7,12 @@ from typing import Any
 from sarmady.epistemic import ResolutionStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
-from .models import CandidateSet, ContextCandidate, ContextRequest
+from .models import (
+    CandidateSet,
+    ContextCandidate,
+    ContextRequest,
+    context_request_fingerprint,
+)
 
 
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
@@ -36,7 +41,8 @@ class LexicalCandidateGenerator:
         if not isinstance(request.query, str):
             raise TypeError("context request query must be a string")
 
-        query_terms = tuple(sorted(_tokenize(request.query)))
+        request_fingerprint = context_request_fingerprint(request)
+        query_terms = tuple(sorted(lexical_tokens(request.query)))
         if not query_terms:
             raise ValueError("context request query must contain a lexical term")
         query_term_set = set(query_terms)
@@ -72,8 +78,8 @@ class LexicalCandidateGenerator:
                         continue
                     value_terms.update(_semantic_tokens(competing.value))
 
-                subject_terms = _tokenize(subject)
-                predicate_terms = _tokenize(predicate)
+                subject_terms = lexical_tokens(subject)
+                predicate_terms = lexical_tokens(predicate)
                 subject_matches = query_term_set & subject_terms
                 predicate_matches = query_term_set & predicate_terms
                 value_matches = query_term_set & value_terms
@@ -110,6 +116,7 @@ class LexicalCandidateGenerator:
                 )
             )
             selected = tuple(candidates[:limit])
+            is_exhaustive = len(candidates) <= limit
 
         return CandidateSet(
             request_id=request.id,
@@ -117,10 +124,12 @@ class LexicalCandidateGenerator:
             canonical_frontier=str(frontier),
             candidates=selected,
             generator_version=self.version,
+            request_fingerprint=request_fingerprint,
+            is_exhaustive=is_exhaustive,
         )
 
 
-def _tokenize(text: str) -> set[str]:
+def lexical_tokens(text: str) -> set[str]:
     return {match.group(0).casefold() for match in _TOKEN_RE.finditer(text)}
 
 
@@ -128,15 +137,15 @@ def _semantic_tokens(value: Any) -> set[str]:
     if value is None:
         return set()
     if isinstance(value, str):
-        return _tokenize(value)
+        return lexical_tokens(value)
     if isinstance(value, bool):
         return {"true" if value else "false"}
     if isinstance(value, (int, float)):
-        return _tokenize(str(value))
+        return lexical_tokens(str(value))
     if isinstance(value, Mapping):
         tokens: set[str] = set()
         for key, item in value.items():
-            tokens.update(_tokenize(key))
+            tokens.update(lexical_tokens(key))
             tokens.update(_semantic_tokens(item))
         return tokens
     if isinstance(value, tuple):
