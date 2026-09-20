@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -89,6 +90,79 @@ class ContextRequest:
             _require_aware(self.known_at, "known_at")
         if self.valid_at is not None:
             _require_aware(self.valid_at, "valid_at")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCandidate:
+    """One derived semantic-key candidate for a context request.
+
+    `rank_score` is generator-local and is not a calibrated probability or a
+    value that may be compared across different generator versions. `signals`
+    are optional diagnostic labels whose meaning is likewise generator-local.
+    A candidate is relevance evidence only; it does not imply coverage,
+    adoption, or memory admission.
+    """
+
+    subject: str
+    predicate: str
+    operative_claim_id: UUID
+    rank_score: float
+    signals: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.subject.strip():
+            raise ValueError("candidate subject is required")
+        if not self.predicate.strip():
+            raise ValueError("candidate predicate is required")
+        if (
+            isinstance(self.rank_score, bool)
+            or not isinstance(self.rank_score, (int, float))
+            or not math.isfinite(float(self.rank_score))
+        ):
+            raise ValueError("candidate rank_score must be a finite number")
+
+        if isinstance(self.signals, str):
+            raise TypeError("candidate signals must be an iterable of strings")
+        try:
+            signals = tuple(self.signals)
+        except TypeError as exc:
+            raise TypeError("candidate signals must be an iterable of strings") from exc
+        if any(not isinstance(signal, str) or not signal for signal in signals):
+            raise TypeError("candidate signals must contain non-empty strings")
+        if len(signals) != len(set(signals)):
+            raise ValueError("candidate signals must be unique")
+        object.__setattr__(self, "signals", signals)
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSet:
+    """Immutable snapshot-bound output from a candidate generator."""
+
+    request_id: UUID
+    snapshot_id: str
+    canonical_frontier: str
+    candidates: tuple[ContextCandidate, ...]
+    generator_version: str
+
+    def __post_init__(self) -> None:
+        if not self.snapshot_id:
+            raise ValueError("candidate snapshot_id is required")
+        if not self.canonical_frontier:
+            raise ValueError("candidate canonical_frontier is required")
+        if not self.generator_version:
+            raise ValueError("candidate generator_version is required")
+
+        if isinstance(self.candidates, (str, bytes)):
+            raise TypeError("candidates must be an iterable of ContextCandidate")
+        try:
+            candidates = tuple(self.candidates)
+        except TypeError as exc:
+            raise TypeError(
+                "candidates must be an iterable of ContextCandidate"
+            ) from exc
+        if any(not isinstance(candidate, ContextCandidate) for candidate in candidates):
+            raise TypeError("candidates must contain only ContextCandidate values")
+        object.__setattr__(self, "candidates", candidates)
 
 
 @dataclass(frozen=True, slots=True)
