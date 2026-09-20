@@ -78,18 +78,20 @@ def test_projection_registration_ignores_unrelated_frontier_advances(tmp_path) -
             source_ref="seed:a",
             observed_at=T0,
         )
-        frontier = store.frontier()
         request = ContextRequest(uuid4(), "current RAM", 512)
-        projection = ContextProjection(
-            id=uuid4(),
-            request_id=request.id,
-            snapshot_id=f"sqlite:{frontier}",
-            canonical_frontier=str(frontier),
-            items=(),
-            coverage_status=CoverageStatus.INSUFFICIENT,
-            manifest_digest="sha256:test-unrelated",
-            compiler_version="test",
-        )
+        with store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
+            snapshot.resolved_state("machine:primary", "memory_gb")
+            projection = ContextProjection(
+                id=uuid4(),
+                request_id=request.id,
+                snapshot_id=f"sqlite:{frontier}",
+                canonical_frontier=str(frontier),
+                items=(),
+                coverage_status=CoverageStatus.INSUFFICIENT,
+                manifest_digest="sha256:test-unrelated",
+                compiler_version="test",
+            )
 
         service.observe_claim(
             subject="user:primary",
@@ -102,7 +104,7 @@ def test_projection_registration_ignores_unrelated_frontier_advances(tmp_path) -
         stale = store.register_context_projection(
             projection,
             request=request,
-            dependency_keys=(store.epistemic_dependency_key("machine:primary", "memory_gb"),),
+            dependency_capture=snapshot,
         )
         assert not stale
         assert not store.projection_is_stale(projection.id)
@@ -110,6 +112,50 @@ def test_projection_registration_ignores_unrelated_frontier_advances(tmp_path) -
 
 def test_projection_registration_detects_related_dependency_change(tmp_path) -> None:
     path = tmp_path / "sarmady.db"
+    with SQLiteCanonicalStore(path) as store:
+        service = EpistemicMemoryService(store)
+        service.observe_claim(
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=64,
+            source_ref="seed:a",
+            observed_at=T0,
+        )
+        request = ContextRequest(uuid4(), "current RAM", 512)
+        with store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
+            snapshot.resolved_state("machine:primary", "memory_gb")
+            projection = ContextProjection(
+                id=uuid4(),
+                request_id=request.id,
+                snapshot_id=f"sqlite:{frontier}",
+                canonical_frontier=str(frontier),
+                items=(),
+                coverage_status=CoverageStatus.INSUFFICIENT,
+                manifest_digest="sha256:test-related",
+                compiler_version="test",
+            )
+
+        service.observe_claim(
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=96,
+            source_ref="upgrade",
+            observed_at=T0 + timedelta(minutes=1),
+            relation_kind=ClaimRelationKind.SUPERSEDES,
+        )
+
+        stale = store.register_context_projection(
+            projection,
+            request=request,
+            dependency_capture=snapshot,
+        )
+        assert stale
+        assert store.projection_stale_reason(projection.id) == "dependency-changed-before-registration"
+
+
+def test_projection_registration_rejects_unproven_advanced_lineage(tmp_path) -> None:
+    path = tmp_path / "unproven-lineage.db"
     with SQLiteCanonicalStore(path) as store:
         service = EpistemicMemoryService(store)
         service.observe_claim(
@@ -128,26 +174,62 @@ def test_projection_registration_detects_related_dependency_change(tmp_path) -> 
             canonical_frontier=str(frontier),
             items=(),
             coverage_status=CoverageStatus.INSUFFICIENT,
-            manifest_digest="sha256:test-related",
-            compiler_version="test",
+            manifest_digest="sha256:test-unproven",
+            compiler_version="external-test",
         )
 
         service.observe_claim(
-            subject="machine:primary",
-            predicate="memory_gb",
-            value=96,
-            source_ref="upgrade",
+            subject="user:primary",
+            predicate="timezone",
+            value="Asia/Riyadh",
+            source_ref="seed:b",
             observed_at=T0 + timedelta(minutes=1),
-            relation_kind=ClaimRelationKind.SUPERSEDES,
         )
 
+        with pytest.raises(ValueError, match="requires captured dependency lineage"):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_keys=(
+                    store.epistemic_dependency_key("machine:primary", "memory_gb"),
+                ),
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+def test_unproven_current_projection_is_conservatively_invalidated(tmp_path) -> None:
+    path = tmp_path / "unproven-wildcard.db"
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "manual context", 512)
+        frontier = store.frontier()
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:test-wildcard",
+            compiler_version="external-test",
+        )
         stale = store.register_context_projection(
             projection,
             request=request,
-            dependency_keys=(store.epistemic_dependency_key("machine:primary", "memory_gb"),),
+            dependency_keys=(),
         )
-        assert stale
-        assert store.projection_stale_reason(projection.id) == "dependency-changed-before-registration"
+        assert not stale
+
+        EpistemicMemoryService(store).observe_claim(
+            subject="unrelated:subject",
+            predicate="value",
+            value=1,
+            source_ref="seed:unrelated",
+            observed_at=T0,
+        )
+
+        assert store.projection_is_stale(projection.id)
 
 
 def test_claim_cannot_reference_preexisting_future_evidence(tmp_path) -> None:
