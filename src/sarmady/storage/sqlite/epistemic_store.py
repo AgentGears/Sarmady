@@ -45,8 +45,56 @@ class EpistemicStoreMixin:
 
         The current head is re-read only after the SQLite write lock is held.
         A stale caller therefore cannot revise an obsolete head after a racing
-        writer commits first.
+        writer commits first. Every externally supplied canonical object is
+        reconstructed through its current constructor before validation so
+        post-construction mutation cannot bypass fresh-write invariants.
         """
+
+        # ``frozen=True`` protects ordinary assignment but Python still exposes
+        # ``object.__setattr__``. Treat dataclass instances as transport objects
+        # at this persistence boundary and re-run every current constructor
+        # invariant before any transaction or durable side effect.
+        event = Event(
+            id=event.id,
+            kind=event.kind,
+            occurred_at=event.occurred_at,
+            recorded_at=event.recorded_at,
+            payload=event.payload,
+        )
+        evidence = Evidence(
+            id=evidence.id,
+            event_id=evidence.event_id,
+            source_ref=evidence.source_ref,
+            captured_at=evidence.captured_at,
+            digest=evidence.digest,
+        )
+        claim = Claim(
+            id=claim.id,
+            subject=claim.subject,
+            predicate=claim.predicate,
+            value=claim.value,
+            recorded_at=claim.recorded_at,
+            evidence_refs=tuple(claim.evidence_refs),
+            valid_from=claim.valid_from,
+            valid_to=claim.valid_to,
+            derivation_ref=claim.derivation_ref,
+        )
+        memory = MemoryEntry(
+            id=memory.id,
+            target_type=memory.target_type,
+            target_id=memory.target_id,
+            kind=memory.kind,
+            created_at=memory.created_at,
+            lifecycle=memory.lifecycle,
+        )
+        if relation is not None:
+            relation = ClaimRelation(
+                id=relation.id,
+                source_claim_id=relation.source_claim_id,
+                target_claim_id=relation.target_claim_id,
+                kind=relation.kind,
+                recorded_at=relation.recorded_at,
+            )
 
         if evidence.event_id != event.id:
             raise ValueError("evidence must reference the bundled event")
