@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
@@ -12,6 +12,13 @@ from uuid import UUID
 def _require_aware(value: datetime, field_name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
+
+
+def _fingerprint_time(value: datetime | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    _require_aware(value, field_name)
+    return value.astimezone(UTC).isoformat()
 
 
 class CoverageStatus(str, Enum):
@@ -123,8 +130,8 @@ def context_request_fingerprint(request: ContextRequest) -> str:
             }
             for item in request.exact_requirements
         ],
-        "known_at": request.known_at.isoformat() if request.known_at else None,
-        "valid_at": request.valid_at.isoformat() if request.valid_at else None,
+        "known_at": _fingerprint_time(request.known_at, "known_at"),
+        "valid_at": _fingerprint_time(request.valid_at, "valid_at"),
     }
     encoded = json.dumps(
         payload,
