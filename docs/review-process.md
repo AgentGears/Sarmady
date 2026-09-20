@@ -56,4 +56,6 @@ Nine remained valid and are addressed by the review-debt hardening change:
 - preservation of the pre-v5 positional `ContextRequest` constructor ordering;
 - continued readability of legacy nonpositive latency values.
 
-Regression coverage for these findings lives in `tests/test_review_debt.py` in addition to the existing concurrency and snapshot tests.
+The same reconciliation cycle also hardened immutable mapping behavior, projection lineage and metadata fencing, migration safety, fresh-write canonical reconstruction, strict finite JSON values, and exact-head fallback review when Codex is unavailable.
+
+Regression coverage for these findings lives across the review-debt, compatibility, migration, wildcard, absence/lineage, context, and runtime test modules.
