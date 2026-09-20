@@ -151,3 +151,29 @@ def test_projection_registration_rejects_future_frontier(tmp_path) -> None:
 
         assert store.context_request(request.id) is None
         assert store.context_projection(projection.id) is None
+
+
+def test_projection_registration_rejects_negative_frontier(tmp_path) -> None:
+    path = tmp_path / "negative-frontier.db"
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "impossible snapshot", 512)
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id="sqlite:-1",
+            canonical_frontier="-1",
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:negative-frontier",
+            compiler_version="test",
+        )
+
+        with pytest.raises(ValueError, match="cannot be negative"):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_keys=(),
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
