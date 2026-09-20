@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from sarmady.context import (
+    CandidateSet,
     ContextCandidate,
     ContextRequest,
     LexicalCandidateGenerator,
@@ -214,6 +215,39 @@ def test_generic_candidate_contract_allows_nonlexical_finite_scores() -> None:
             predicate="memory_gb",
             operative_claim_id=uuid4(),
             rank_score=float("nan"),
+        )
+
+
+def test_candidate_contract_defensively_freezes_caller_owned_collections() -> None:
+    raw_signals = ["term:memory"]
+    candidate = ContextCandidate(
+        subject="machine:primary",
+        predicate="memory_gb",
+        operative_claim_id=uuid4(),
+        rank_score=1.0,
+        signals=raw_signals,  # type: ignore[arg-type]
+    )
+    raw_signals.append("term:changed")
+    assert candidate.signals == ("term:memory",)
+
+    raw_candidates = [candidate]
+    candidate_set = CandidateSet(
+        request_id=uuid4(),
+        snapshot_id="sqlite:1",
+        canonical_frontier="1",
+        candidates=raw_candidates,  # type: ignore[arg-type]
+        generator_version="custom-v1",
+    )
+    raw_candidates.clear()
+    assert candidate_set.candidates == (candidate,)
+
+    with pytest.raises(TypeError, match="ContextCandidate"):
+        CandidateSet(
+            request_id=uuid4(),
+            snapshot_id="sqlite:1",
+            canonical_frontier="1",
+            candidates=["not-a-candidate"],  # type: ignore[list-item]
+            generator_version="custom-v1",
         )
 
 
