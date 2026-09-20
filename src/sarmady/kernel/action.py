@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Any, Mapping
 from uuid import UUID
 
+from sarmady.values import freeze_value
+
 
 class EffectStatus(str, Enum):
     UNCONFIRMED = "UNCONFIRMED"
@@ -24,6 +26,9 @@ class ActionIntent:
     fingerprint: str
     parameters: Mapping[str, Any]
     proposed_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "parameters", freeze_value(self.parameters))
 
 
 @dataclass(frozen=True, slots=True)

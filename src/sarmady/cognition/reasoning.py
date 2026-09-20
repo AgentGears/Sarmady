@@ -56,7 +56,9 @@ class ReasoningPolicy:
         if len(requirement_keys) != len(set(requirement_keys)):
             raise ValueError("reasoning requirement keys must be unique")
         if self.source_sha256 is not None:
-            digest = self.source_sha256.lower()
+            if self.source_sha256 != self.source_sha256.lower():
+                raise ValueError("source_sha256 must be a lowercase SHA-256 hex digest")
+            digest = self.source_sha256
             if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
                 raise ValueError("source_sha256 must be a lowercase SHA-256 hex digest")
 

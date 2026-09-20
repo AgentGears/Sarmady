@@ -6,21 +6,26 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, 2, 3, 4, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, 3, 4, 5, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
         )
 
-    # v0-v4 databases can be upgraded in place. v5 changes only the
+    # v0-v5 databases can be upgraded in place. v5 changed only the
     # backwards-compatible JSON encoding inside coverage_requirements_json.
+    # v6 adds no columns; it establishes conservative lineage semantics for
+    # projections created before dependency capture could prove completeness.
+    # The schema version is deliberately advanced only after every migration
+    # succeeds. If migration is interrupted, the prior version remains durable
+    # and the idempotent migration is retried on the next open.
     db.executescript(
-        f"""
+        """
         CREATE TABLE IF NOT EXISTS semantic_log (
             seq INTEGER PRIMARY KEY AUTOINCREMENT,
             kind TEXT NOT NULL,
@@ -201,11 +206,14 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_generated_artifacts_invocation
             ON generated_artifacts(invocation_id);
-
-        PRAGMA user_version = {SCHEMA_VERSION};
         """
     )
     _backfill_legacy_memory_created_events(db)
+    if version < 6:
+        _backfill_legacy_projection_lineage(db)
+
+    db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    db.commit()
 
 
 def _backfill_legacy_memory_created_events(db: sqlite3.Connection) -> None:
@@ -261,6 +269,51 @@ def _backfill_legacy_memory_created_events(db: sqlite3.Connection) -> None:
                     """,
                     (str(event_id), row["created_at"]),
                 )
+    except BaseException:
+        db.rollback()
+        raise
+    else:
+        db.commit()
+
+
+def _backfill_legacy_projection_lineage(db: sqlite3.Connection) -> None:
+    """Conservatively invalidate projections created before lineage proofs.
+
+    Pre-v6 dependency rows were caller-declared and therefore cannot prove that
+    every semantic dependency was captured. Preserve those rows for audit, add
+    the unproven-lineage wildcard, and force any previously fresh projection to
+    be recompiled before cognition can use it under v6 semantics.
+    """
+
+    rows = db.execute("SELECT id FROM context_projections").fetchall()
+    if not rows:
+        return
+
+    frontier = int(
+        db.execute(
+            "SELECT COALESCE(MAX(seq), 0) AS frontier FROM semantic_log"
+        ).fetchone()["frontier"]
+    )
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        db.executemany(
+            """
+            INSERT OR IGNORE INTO context_projection_dependencies(
+                projection_id, dependency_key
+            ) VALUES (?, 'semantic:*')
+            """,
+            [(row["id"],) for row in rows],
+        )
+        db.execute(
+            """
+            UPDATE context_projections
+            SET stale = 1,
+                stale_reason = 'schema-v6-unproven-lineage-migration',
+                stale_at_frontier = ?
+            WHERE stale = 0
+            """,
+            (frontier,),
+        )
     except BaseException:
         db.rollback()
         raise

@@ -28,7 +28,6 @@ class CoverageContextCompiler:
                 "CoverageContextCompiler requires at least one exact coverage requirement"
             )
 
-        dependency_keys: set[str] = set()
         items: list[ContextItem] = []
         gaps: list[str] = []
         omitted_refs: list[UUID] = []
@@ -36,20 +35,15 @@ class CoverageContextCompiler:
         seen_refs: set[tuple[str, UUID]] = set()
         satisfied_keys: list[str] = []
 
-        with self.store.read_snapshot() as frontier:
+        with self.store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
             for requirement in request.exact_requirements:
-                dependency_keys.add(
-                    self.store.epistemic_dependency_key(
-                        requirement.subject, requirement.predicate
-                    )
-                )
                 requirement_gaps: list[str] = []
-                state = self.store.resolved_state(
+                state = snapshot.resolved_state(
                     requirement.subject,
                     requirement.predicate,
                     known_at=request.known_at,
                     valid_at=request.valid_at,
-                    snapshot_frontier=frontier,
                 )
 
                 if state.status is ResolutionStatus.MISSING:
@@ -61,12 +55,12 @@ class CoverageContextCompiler:
                         if claim_id is None:
                             requirement_gaps.append("missing-operative-claim")
                             continue
-                        claim = self.store.claim(claim_id)
+                        claim = snapshot.claim(claim_id)
                         if claim is None:
                             requirement_gaps.append(f"missing-claim:{claim_id}")
                             continue
 
-                        memory = self.store.memory_entry_for_target("Claim", claim.id)
+                        memory = snapshot.memory_entry_for_target("Claim", claim.id)
                         if memory is None:
                             requirement_gaps.append(
                                 f"claim-not-admitted-to-memory:{claim.id}"
@@ -74,10 +68,7 @@ class CoverageContextCompiler:
                             omitted_refs.append(claim.id)
                             continue
 
-                        dependency_keys.add(
-                            self.store.memory_dependency_key(memory.id)
-                        )
-                        if not self.store.is_active_memory_target("Claim", claim.id):
+                        if not snapshot.is_active_memory_target("Claim", claim.id):
                             requirement_gaps.append(
                                 f"claim-memory-not-active:{claim.id}"
                             )
@@ -100,7 +91,7 @@ class CoverageContextCompiler:
                         if not claim.evidence_refs:
                             requirement_gaps.append(f"claim-without-evidence:{claim.id}")
                         for evidence_id in claim.evidence_refs:
-                            evidence = self.store.evidence(evidence_id)
+                            evidence = snapshot.evidence(evidence_id)
                             if evidence is None:
                                 requirement_gaps.append(
                                     f"missing-evidence:{evidence_id}"
@@ -180,6 +171,6 @@ class CoverageContextCompiler:
         self.store.register_context_projection(
             projection,
             request=request,
-            dependency_keys=tuple(dependency_keys),
+            dependency_capture=snapshot,
         )
         return projection

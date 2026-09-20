@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Protocol
 from uuid import UUID, uuid4
@@ -11,8 +11,9 @@ from sarmady.cognition import (
     ModelInvocation,
     ReasoningPolicy,
 )
-from sarmady.context import ContextProjection
+from sarmady.context import ContextProjection, CoverageStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
+from sarmady.values import thaw_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,12 @@ class ModelInput:
     reasoning_policy: ReasoningPolicy | None
     items: tuple[ModelContextItem, ...]
     conflict_refs: tuple[UUID, ...] = ()
+    coverage_status: CoverageStatus = field(
+        default=CoverageStatus.INSUFFICIENT,
+        kw_only=True,
+    )
+    unresolved_gaps: tuple[str, ...] = field(default=(), kw_only=True)
+    omitted_refs: tuple[UUID, ...] = field(default=(), kw_only=True)
 
     def __post_init__(self) -> None:
         if self.reasoning_policy is None:
@@ -58,8 +65,10 @@ class ModelResponse:
     content: str
 
     def __post_init__(self) -> None:
-        if not self.artifact_kind.strip():
+        if not isinstance(self.artifact_kind, str) or not self.artifact_kind.strip():
             raise ValueError("artifact_kind is required")
+        if not isinstance(self.content, str):
+            raise TypeError("model response content must be a string")
 
 
 class ModelAdapter(Protocol):
@@ -188,7 +197,7 @@ class CognitiveRuntime:
                 payload = {
                     "subject": claim.subject,
                     "predicate": claim.predicate,
-                    "value": claim.value,
+                    "value": thaw_value(claim.value),
                     "recorded_at": claim.recorded_at.isoformat(),
                     "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
                     "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
@@ -230,4 +239,7 @@ class CognitiveRuntime:
             reasoning_policy=policy,
             items=tuple(items),
             conflict_refs=projection.conflict_refs,
+            coverage_status=projection.coverage_status,
+            unresolved_gaps=projection.unresolved_gaps,
+            omitted_refs=projection.omitted_refs,
         )

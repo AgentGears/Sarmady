@@ -8,6 +8,7 @@ from sarmady.epistemic import Claim, ClaimRelation, ClaimRelationKind, Evidence,
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.memory import MemoryEntry, MemoryKind, MemoryLifecycleEventKind
 from sarmady.storage.sqlite import SQLiteCanonicalStore
+from sarmady.storage.sqlite.schema import SCHEMA_VERSION
 
 
 T0 = datetime(2026, 9, 20, 9, 0, tzinfo=UTC)
@@ -87,7 +88,7 @@ def test_legacy_memory_admission_gets_created_event_during_schema_v3_upgrade(tmp
     db.close()
 
     with SQLiteCanonicalStore(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         events = store.memory_lifecycle_events(memory_id)
         assert len(events) == 1
         assert events[0].event_kind is MemoryLifecycleEventKind.CREATED

@@ -25,6 +25,12 @@ class ReasoningStoreMixin:
         if registered_at.tzinfo is None or registered_at.utcoffset() is None:
             raise ValueError("registered_at must be timezone-aware")
 
+        # Reconstruct at the persistence boundary instead of trusting that the
+        # supplied object still reflects current constructor invariants. This is
+        # essential for legacy objects rehydrated with their historical digest
+        # spelling solely to verify an old fingerprint.
+        policy = self._canonical_policy_for_registration(policy)
+
         stages_json = json.dumps(list(policy.stages), ensure_ascii=False)
         requirements_json = json.dumps(
             [
@@ -42,7 +48,15 @@ class ReasoningStoreMixin:
             ).fetchone()
             if row is not None:
                 existing = self._reasoning_policy_from_row(row)
-                if existing != policy or row["fingerprint"] != policy.fingerprint:
+                exact_match = (
+                    existing == policy
+                    and row["fingerprint"] == policy.fingerprint
+                )
+                legacy_case_only_match = self._equivalent_modulo_digest_case(
+                    existing,
+                    policy,
+                )
+                if not exact_match and not legacy_case_only_match:
                     raise ValueError(
                         f"reasoning policy id {policy.id!r} is already bound to different semantics"
                     )
@@ -94,11 +108,69 @@ class ReasoningStoreMixin:
         return row["fingerprint"] if row is not None else None
 
     @staticmethod
+    def _canonical_policy_for_registration(policy: ReasoningPolicy) -> ReasoningPolicy:
+        digest = policy.source_sha256
+        canonical_digest = digest.lower() if digest is not None else None
+        return ReasoningPolicy(
+            id=policy.id,
+            version=policy.version,
+            mode=policy.mode,
+            stages=tuple(policy.stages),
+            requirements=tuple(policy.requirements),
+            source_ref=policy.source_ref,
+            source_sha256=canonical_digest,
+        )
+
+    @staticmethod
+    def _equivalent_modulo_digest_case(
+        existing: ReasoningPolicy,
+        candidate: ReasoningPolicy,
+    ) -> bool:
+        """Treat pre-hardening SHA-256 case as representation, not semantics.
+
+        Legacy releases accepted uppercase or mixed-case hex and fingerprinted
+        that exact spelling. A current canonical lowercase object with otherwise
+        identical fields must remain an idempotent registration, while any
+        substantive policy or provenance difference still fails closed.
+        """
+
+        existing_digest = existing.source_sha256
+        candidate_digest = candidate.source_sha256
+        normalized_existing = (
+            existing_digest.lower() if existing_digest is not None else None
+        )
+        normalized_candidate = (
+            candidate_digest.lower() if candidate_digest is not None else None
+        )
+        return (
+            existing.id == candidate.id
+            and existing.version == candidate.version
+            and existing.mode == candidate.mode
+            and existing.stages == candidate.stages
+            and existing.requirements == candidate.requirements
+            and existing.source_ref == candidate.source_ref
+            and normalized_existing == normalized_candidate
+        )
+
+    @staticmethod
     def _reasoning_policy_from_row(row) -> ReasoningPolicy:
         requirements = tuple(
             ReasoningRequirement(item["key"], item["description"])
             for item in json.loads(row["requirements_json"])
         )
+        persisted_digest = row["source_sha256"]
+        construction_digest = persisted_digest
+        legacy_noncanonical_digest = (
+            persisted_digest is not None
+            and persisted_digest != persisted_digest.lower()
+        )
+        if legacy_noncanonical_digest:
+            # Pre-hardening releases accepted uppercase/mixed-case SHA-256
+            # provenance. Validate the digest through the current constructor
+            # using its canonical lowercase form, then restore the exact legacy
+            # spelling solely for fingerprint verification and durable reads.
+            construction_digest = persisted_digest.lower()
+
         policy = ReasoningPolicy(
             id=row["id"],
             version=row["version"],
@@ -106,8 +178,10 @@ class ReasoningStoreMixin:
             stages=tuple(json.loads(row["stages_json"])),
             requirements=requirements,
             source_ref=row["source_ref"],
-            source_sha256=row["source_sha256"],
+            source_sha256=construction_digest,
         )
+        if legacy_noncanonical_digest:
+            object.__setattr__(policy, "source_sha256", persisted_digest)
         if policy.fingerprint != row["fingerprint"]:
             raise RuntimeError(
                 f"persisted reasoning policy {policy.id!r} failed fingerprint verification"

@@ -21,6 +21,7 @@ This document defines invariants that implementations must preserve. They are st
 13. **Generation is not presentation.** Generated output, adopted output, presentation attempt, and delivery receipt are separate states.
 14. **Irreversible dispatch is fenced.** Authority and relevant semantic state must be revalidated immediately before consequential execution.
 15. **Derived state carries lineage.** Every materialization must either retain enough dependency/provenance information for audit and invalidation or be deterministically reconstructible.
+16. **Canonical values are deeply immutable after admission.** Caller-owned mutable containers must be snapshotted or frozen at semantic boundaries so later alias mutation cannot rewrite history, alter an approved action, or change a durable fingerprint without a new governed transition.
 
 ## Non-goals of the kernel
 

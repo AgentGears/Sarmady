@@ -51,10 +51,37 @@ class ContextRequest:
     valid_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        # v5 inserted exact_requirements before the temporal fields. Pre-v5
+        # positional callers therefore place known_at into this slot. Preserve
+        # both public layouts by recognizing only the legacy datetime/None
+        # shape and shifting it back into the temporal fields. This also
+        # preserves the valid legacy mixed form where known_at was positional
+        # and valid_at was supplied by keyword.
+        raw_exact = self.exact_requirements
+        if isinstance(raw_exact, datetime) or raw_exact is None:
+            if self.known_at is not None and self.valid_at is not None:
+                raise TypeError(
+                    "ambiguous ContextRequest temporal arguments; use keywords"
+                )
+            legacy_known_at = raw_exact
+            legacy_valid_at = (
+                self.valid_at if self.valid_at is not None else self.known_at
+            )
+            object.__setattr__(self, "exact_requirements", ())
+            object.__setattr__(self, "known_at", legacy_known_at)
+            object.__setattr__(self, "valid_at", legacy_valid_at)
+
         if self.token_budget <= 0:
             raise ValueError("token_budget must be positive")
         if self.latency_budget_ms is not None and self.latency_budget_ms <= 0:
             raise ValueError("latency_budget_ms must be positive when provided")
+        if not isinstance(self.exact_requirements, tuple) or any(
+            not isinstance(item, ExactCoverageRequirement)
+            for item in self.exact_requirements
+        ):
+            raise TypeError(
+                "exact_requirements must be a tuple of ExactCoverageRequirement"
+            )
         requirement_keys = [item.key for item in self.exact_requirements]
         if len(requirement_keys) != len(set(requirement_keys)):
             raise ValueError("exact coverage requirement keys must be unique")

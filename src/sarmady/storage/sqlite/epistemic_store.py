@@ -17,6 +17,7 @@ from sarmady.memory import (
     MemoryLifecycleEvent,
     MemoryLifecycleEventKind,
 )
+from sarmady.values import thaw_value
 
 from ._codec import claim_from_row, iso, relation_from_row
 from .resolution import HEAD_MOVING_RELATIONS, rebuild_claim_heads, resolve_state
@@ -44,8 +45,56 @@ class EpistemicStoreMixin:
 
         The current head is re-read only after the SQLite write lock is held.
         A stale caller therefore cannot revise an obsolete head after a racing
-        writer commits first.
+        writer commits first. Every externally supplied canonical object is
+        reconstructed through its current constructor before validation so
+        post-construction mutation cannot bypass fresh-write invariants.
         """
+
+        # ``frozen=True`` protects ordinary assignment but Python still exposes
+        # ``object.__setattr__``. Treat dataclass instances as transport objects
+        # at this persistence boundary and re-run every current constructor
+        # invariant before any transaction or durable side effect.
+        event = Event(
+            id=event.id,
+            kind=event.kind,
+            occurred_at=event.occurred_at,
+            recorded_at=event.recorded_at,
+            payload=event.payload,
+        )
+        evidence = Evidence(
+            id=evidence.id,
+            event_id=evidence.event_id,
+            source_ref=evidence.source_ref,
+            captured_at=evidence.captured_at,
+            digest=evidence.digest,
+        )
+        claim = Claim(
+            id=claim.id,
+            subject=claim.subject,
+            predicate=claim.predicate,
+            value=claim.value,
+            recorded_at=claim.recorded_at,
+            evidence_refs=tuple(claim.evidence_refs),
+            valid_from=claim.valid_from,
+            valid_to=claim.valid_to,
+            derivation_ref=claim.derivation_ref,
+        )
+        memory = MemoryEntry(
+            id=memory.id,
+            target_type=memory.target_type,
+            target_id=memory.target_id,
+            kind=memory.kind,
+            created_at=memory.created_at,
+            lifecycle=memory.lifecycle,
+        )
+        if relation is not None:
+            relation = ClaimRelation(
+                id=relation.id,
+                source_claim_id=relation.source_claim_id,
+                target_claim_id=relation.target_claim_id,
+                kind=relation.kind,
+                recorded_at=relation.recorded_at,
+            )
 
         if evidence.event_id != event.id:
             raise ValueError("evidence must reference the bundled event")
@@ -94,8 +143,25 @@ class EpistemicStoreMixin:
             for ref in claim.evidence_refs:
                 if ref == evidence.id:
                     continue
-                if self.evidence(ref) is None:
+                referenced_evidence = self.evidence(ref)
+                if referenced_evidence is None:
                     raise ValueError(f"claim references unknown evidence {ref}")
+                if referenced_evidence.captured_at > claim.recorded_at:
+                    raise ValueError(
+                        f"claim references evidence captured after claim admission: {ref}"
+                    )
+                referenced_event = self.db.execute(
+                    "SELECT recorded_at FROM events WHERE id = ?",
+                    (str(referenced_evidence.event_id),),
+                ).fetchone()
+                if referenced_event is None:
+                    raise ValueError(
+                        f"evidence references unknown event {referenced_evidence.event_id}"
+                    )
+                if datetime.fromisoformat(referenced_event["recorded_at"]) > claim.recorded_at:
+                    raise ValueError(
+                        f"claim references evidence learned after claim admission: {ref}"
+                    )
 
             self.db.execute(
                 "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
@@ -104,7 +170,7 @@ class EpistemicStoreMixin:
                     event.kind,
                     iso(event.occurred_at),
                     iso(event.recorded_at),
-                    json.dumps(dict(event.payload), sort_keys=True),
+                    json.dumps(thaw_value(event.payload), sort_keys=True),
                 ),
             )
             self._log("Event", event.id, event.recorded_at)
@@ -127,7 +193,7 @@ class EpistemicStoreMixin:
                     str(claim.id),
                     claim.subject,
                     claim.predicate,
-                    json.dumps(claim.value, sort_keys=True),
+                    json.dumps(thaw_value(claim.value), sort_keys=True),
                     iso(claim.recorded_at),
                     json.dumps([str(ref) for ref in claim.evidence_refs]),
                     iso(claim.valid_from),
@@ -190,8 +256,6 @@ class EpistemicStoreMixin:
                 (self.epistemic_dependency_key(claim.subject, claim.predicate),),
                 reason="epistemic-state-changed",
             )
-
-    # --- Epistemic reads and reconstruction ---------------------------------
 
     def current_claim(self, subject: str, predicate: str) -> Claim | None:
         row = self.db.execute(
@@ -263,8 +327,6 @@ class EpistemicStoreMixin:
         valid_at: datetime | None = None,
         snapshot_frontier: int | None = None,
     ) -> ResolvedState:
-        # Public calls get a real read snapshot automatically. The compiler can
-        # pass the already-pinned frontier to avoid nesting transactions.
         if snapshot_frontier is None and not self.db.in_transaction:
             with self.read_snapshot() as frontier:
                 return resolve_state(

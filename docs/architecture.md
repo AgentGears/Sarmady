@@ -71,7 +71,7 @@ A materialization must never become the only surviving source of a semantic fact
 
 A context compiler must not read a frontier and then accidentally mix in later state. SQLite M1 uses an explicit WAL read transaction: the first frontier read pins the database snapshot, all claim/evidence/memory reads occur inside that snapshot, and only then is the immutable projection emitted.
 
-Projection dependency registration occurs after the read transaction. If the semantic frontier changed in that handoff window, registration conservatively marks the projection stale rather than pretending the snapshot is current.
+Projection registration occurs after the read transaction. The registration boundary binds the durable `snapshot_id` to the canonical SQLite frontier and, for captured lineage, verifies that projected items were successfully read inside that pinned snapshot. If the semantic frontier advances in the handoff window, proven dependency lineage distinguishes relevant changes from unrelated ones: a changed recorded dependency stales the projection, while an unrelated semantic write does not. A projection without proven lineage may register only at the current frontier and receives the conservative `semantic:*` dependency so any later semantic mutation invalidates it.
 
 ## Dependency discipline
 
