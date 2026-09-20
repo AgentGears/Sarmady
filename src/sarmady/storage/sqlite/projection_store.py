@@ -205,11 +205,19 @@ class ProjectionStoreMixin:
         else:
             raise RuntimeError("invalid persisted coverage_requirements_json")
 
-        return ContextRequest(
+        persisted_latency = row["latency_budget_ms"]
+        request = ContextRequest(
             id=UUID(row["id"]),
             query=row["query"],
             token_budget=int(row["token_budget"]),
-            latency_budget_ms=row["latency_budget_ms"],
+            # Historical pre-v5 rows could contain nonpositive values. New
+            # construction remains validated; only durable rehydration bypasses
+            # the newer invariant so old state stays inspectable verbatim.
+            latency_budget_ms=(
+                persisted_latency
+                if persisted_latency is None or persisted_latency > 0
+                else None
+            ),
             goal_ref=UUID(row["goal_ref"]) if row["goal_ref"] else None,
             task_ref=UUID(row["task_ref"]) if row["task_ref"] else None,
             coverage_requirements=labels,
@@ -223,6 +231,9 @@ class ProjectionStoreMixin:
                 if row["valid_at"] else None
             ),
         )
+        if persisted_latency is not None and persisted_latency <= 0:
+            object.__setattr__(request, "latency_budget_ms", persisted_latency)
+        return request
 
     def context_projection(self, projection_id: UUID) -> ContextProjection | None:
         row = self.db.execute(
