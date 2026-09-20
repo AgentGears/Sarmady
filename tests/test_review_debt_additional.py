@@ -58,6 +58,39 @@ def test_preconstructed_frozen_mapping_detaches_mutable_descendants() -> None:
     assert claim.value["items"] == ("before",)
 
 
+def test_frozen_mapping_reinitialization_cannot_replace_admitted_state() -> None:
+    claim = Claim(
+        uuid4(),
+        "subject",
+        "predicate",
+        {"value": 1, "nested": {"state": "original"}},
+        T0,
+    )
+    admitted = claim.value
+    assert isinstance(admitted, FrozenMapping)
+
+    FrozenMapping.__init__(
+        admitted,
+        {"value": 2, "nested": {"state": "replacement"}},
+    )
+
+    assert admitted["value"] == 1
+    assert admitted["nested"]["state"] == "original"
+
+
+def test_frozen_mapping_exposes_no_mutable_backing_attributes() -> None:
+    claim = Claim(uuid4(), "subject", "predicate", {"value": 1}, T0)
+    admitted = claim.value
+    assert isinstance(admitted, FrozenMapping)
+
+    with pytest.raises(AttributeError):
+        object.__setattr__(admitted, "_items", (("value", 2),))
+    with pytest.raises(AttributeError):
+        object.__setattr__(admitted, "_index", {"value": 2})
+
+    assert admitted["value"] == 1
+
+
 def test_new_context_request_still_requires_positive_latency_budget() -> None:
     with pytest.raises(ValueError, match="latency_budget_ms must be positive"):
         ContextRequest(uuid4(), "new request", 512, latency_budget_ms=-1)
