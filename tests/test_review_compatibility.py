@@ -58,6 +58,26 @@ def test_context_request_accepts_pre_v5_positional_temporal_layout() -> None:
     assert request.valid_at == valid_at
 
 
+def test_context_request_accepts_mixed_pre_v5_temporal_arguments() -> None:
+    valid_at = T0 + timedelta(hours=2)
+
+    request = ContextRequest(
+        uuid4(),
+        "mixed historical",
+        512,
+        None,
+        None,
+        None,
+        ("legacy-label",),
+        T0,
+        valid_at=valid_at,
+    )
+
+    assert request.exact_requirements == ()
+    assert request.known_at == T0
+    assert request.valid_at == valid_at
+
+
 def test_model_input_legacy_constructor_gets_conservative_coverage_default() -> None:
     model_input = ModelInput(
         uuid4(),
