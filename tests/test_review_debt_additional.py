@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 
-from sarmady.context import ContextRequest
+from sarmady.context import (
+    ContextProjection,
+    ContextRequest,
+    CoverageStatus,
+    ExactContextCompiler,
+)
 from sarmady.epistemic import Claim, Evidence, Event
 from sarmady.epistemic.service import EpistemicMemoryService
+from sarmady.kernel import Agent
 from sarmady.memory import MemoryEntry, MemoryKind
+from sarmady.runtime import CognitiveRuntime, ModelInput, ModelResponse
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 from sarmady.values import FrozenMapping
 
@@ -18,6 +26,14 @@ T0 = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
 class _MutableValue:
     pass
+
+
+class _JsonSerializingAdapter:
+    binding_id = "fake:json-serializing"
+
+    def invoke(self, model_input: ModelInput) -> ModelResponse:
+        json.dumps([item.payload for item in model_input.items])
+        return ModelResponse("answer", "ok")
 
 
 def test_canonical_value_boundary_rejects_non_json_mutables() -> None:
@@ -78,3 +94,60 @@ def test_claim_cannot_reference_evidence_learned_after_claim_admission(tmp_path)
             store.commit_claim_bundle(
                 event=event, evidence=evidence, claim=claim, memory=memory
             )
+
+
+def test_mapping_claim_is_json_serializable_at_model_adapter_boundary(tmp_path) -> None:
+    path = tmp_path / "adapter-json.db"
+    with SQLiteCanonicalStore(path) as store:
+        EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="profile",
+            value={"hardware": {"ram_gb": 64}, "labels": ["primary"]},
+            source_ref="seed:profile",
+            observed_at=T0,
+        )
+        agent = Agent(uuid4(), "Sarmady", T0)
+        store.register_agent(agent)
+        projection = ExactContextCompiler(store).compile(
+            ContextRequest(uuid4(), "machine profile", 1024),
+            subject="machine:primary",
+            predicate="profile",
+        )
+
+        artifact = CognitiveRuntime(
+            store, clock=lambda: T0 + timedelta(minutes=1)
+        ).invoke(
+            agent_id=agent.id,
+            context_projection_id=projection.id,
+            operation="summarize-profile",
+            adapter=_JsonSerializingAdapter(),
+        )
+
+        assert artifact.content == "ok"
+
+
+def test_projection_registration_rejects_future_frontier(tmp_path) -> None:
+    path = tmp_path / "future-frontier.db"
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "future snapshot", 512)
+        future_frontier = store.frontier() + 1
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{future_frontier}",
+            canonical_frontier=str(future_frontier),
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:future-frontier",
+            compiler_version="test",
+        )
+
+        with pytest.raises(ValueError, match="cannot exceed current frontier"):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_keys=(),
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
