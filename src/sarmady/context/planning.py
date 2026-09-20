@@ -19,10 +19,11 @@ class ControlledRequirementPlanner:
     """Infer one exact semantic obligation or preserve uncertainty.
 
     The v0.1 planner is intentionally conservative. It only converts explicit
-    predicate-token evidence into a hard requirement, requires an exhaustive
-    candidate set, resolves subject collisions only from discriminating subject
-    terms present in the question, and abstains on unsupported multi-predicate
-    intent. Candidate rank alone never authorizes a hard semantic constraint.
+    predicate-token evidence into a hard requirement, requires a request-bound
+    exhaustive `lexical-v0.2` candidate set, resolves subject collisions only
+    from discriminating subject terms present in the question, and abstains
+    whenever the predicate evidence is not uniquely interpretable. Candidate
+    rank alone never authorizes a hard semantic constraint.
     """
 
     __slots__ = ()
@@ -58,6 +59,16 @@ class ControlledRequirementPlanner:
             planner_version=self.version,
         )
 
+        # This planner's uniqueness proof depends on lexical-v0.2 scanning every
+        # active semantic key and only then applying its result limit. A generic
+        # retriever's own `is_exhaustive` claim may describe a different search
+        # universe, so it cannot be substituted without a new planner version.
+        if candidate_set.generator_version != "lexical-v0.2":
+            return RequirementPlan(
+                **common,
+                status=RequirementPlanStatus.ABSTAINED,
+                reasons=("unsupported-candidate-generator",),
+            )
         if not candidate_set.is_exhaustive:
             return RequirementPlan(
                 **common,
@@ -89,7 +100,7 @@ class ControlledRequirementPlanner:
             return RequirementPlan(
                 **common,
                 status=RequirementPlanStatus.ABSTAINED,
-                reasons=("unsupported-multi-predicate-intent",),
+                reasons=("predicate-ambiguous-or-multi-intent",),
             )
 
         predicate = predicates[0]
@@ -170,6 +181,8 @@ class ControlledRequirementPlanner:
             raise ValueError("source request semantics changed after requirement planning")
         if plan.status is not RequirementPlanStatus.RESOLVED:
             raise ValueError("only a resolved requirement plan can derive a context request")
+        if not isinstance(new_request_id, UUID):
+            raise TypeError("derived context request id must be UUID")
         if new_request_id == source.id:
             raise ValueError("derived context request must use a new id")
 
