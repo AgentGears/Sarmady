@@ -264,3 +264,110 @@ def test_untouched_capture_does_not_prove_advanced_lineage(tmp_path) -> None:
 
         assert store.context_request(request.id) is None
         assert store.context_projection(projection.id) is None
+
+
+def test_projection_snapshot_id_must_match_canonical_frontier(tmp_path) -> None:
+    path = tmp_path / "snapshot-id-binding.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "truthful snapshot identity", 512)
+        frontier = store.frontier()
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier + 999}",
+            canonical_frontier=str(frontier),
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:false-snapshot-label",
+            compiler_version="external-test",
+        )
+
+        with pytest.raises(ValueError, match="snapshot_id must match canonical frontier"):
+            store.register_context_projection(projection, request=request)
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+def test_projection_registration_rejects_missing_current_item(tmp_path) -> None:
+    path = tmp_path / "missing-current-item.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "missing current item", 512)
+        frontier = store.frontier()
+        missing_claim_id = uuid4()
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(ContextItem("Claim", missing_claim_id, "essential_now"),),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest="sha256:missing-current-item",
+            compiler_version="external-test",
+        )
+
+        with pytest.raises(ValueError, match="references unknown Claim"):
+            store.register_context_projection(projection, request=request)
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+def test_projection_registration_rejects_unsupported_item_type(tmp_path) -> None:
+    path = tmp_path / "unsupported-current-item.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "unsupported current item", 512)
+        frontier = store.frontier()
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(ContextItem("MemoryEntry", uuid4(), "essential_now"),),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest="sha256:unsupported-current-item",
+            compiler_version="external-test",
+        )
+
+        with pytest.raises(ValueError, match="unsupported context projection item type"):
+            store.register_context_projection(projection, request=request)
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+def test_unproven_current_projection_with_existing_item_remains_supported(tmp_path) -> None:
+    path = tmp_path / "unproven-existing-item.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        claim = EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="serial",
+            value="ABC-123",
+            source_ref="seed:current",
+            observed_at=T0,
+        )
+        request = ContextRequest(uuid4(), "manual current claim", 512)
+        frontier = store.frontier()
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(ContextItem("Claim", claim.id, "essential_now"),),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest="sha256:unproven-existing-item",
+            compiler_version="external-test",
+        )
+
+        stale = store.register_context_projection(projection, request=request)
+        assert not stale
+        assert not store.projection_is_stale(projection.id)
+
+        # The no-capture path remains intentionally conservative: any later
+        # semantic write invalidates the projection through its wildcard.
+        store.register_agent(Agent(uuid4(), "later-change", T0))
+        assert store.projection_is_stale(projection.id)
