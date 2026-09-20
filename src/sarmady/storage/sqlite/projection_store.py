@@ -29,6 +29,10 @@ class ProjectionStoreMixin:
         canonical_frontier = int(projection.canonical_frontier)
         with self._write_transaction():
             current_frontier = self.frontier()
+            if canonical_frontier > current_frontier:
+                raise ValueError(
+                    "projection canonical_frontier cannot exceed current frontier"
+                )
             self.db.execute(
                 """
                 INSERT OR IGNORE INTO context_requests(
@@ -210,9 +214,6 @@ class ProjectionStoreMixin:
             id=UUID(row["id"]),
             query=row["query"],
             token_budget=int(row["token_budget"]),
-            # Historical pre-v5 rows could contain nonpositive values. New
-            # construction remains validated; only durable rehydration bypasses
-            # the newer invariant so old state stays inspectable verbatim.
             latency_budget_ms=(
                 persisted_latency
                 if persisted_latency is None or persisted_latency > 0
