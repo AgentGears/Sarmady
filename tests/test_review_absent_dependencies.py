@@ -91,3 +91,46 @@ def test_context_snapshot_proxy_rejects_all_semantic_reads_after_close(tmp_path)
             snapshot.memory_entry_for_target("Claim", object_id)
         with pytest.raises(RuntimeError, match="context read snapshot is closed"):
             snapshot.is_active_memory_target("Claim", object_id)
+
+
+def test_context_lineage_receipt_cannot_be_relabelled_to_newer_frontier(tmp_path) -> None:
+    path = tmp_path / "sealed-context-lineage.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "sealed lineage", 512)
+        with store.context_read_snapshot() as snapshot:
+            original_frontier = snapshot.frontier
+
+        store.register_agent(Agent(uuid4(), "intervening-write", T0))
+        newer_frontier = store.frontier()
+        assert newer_frontier > original_frontier
+
+        # The receipt exposes a read-only frontier derived from store-owned
+        # capture state. Public reassignment cannot relabel old reads.
+        with pytest.raises(AttributeError):
+            snapshot.frontier = newer_frontier  # type: ignore[misc]
+        assert snapshot.frontier == original_frontier
+
+        relabelled_projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{newer_frontier}",
+            canonical_frontier=str(newer_frontier),
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:sealed-lineage",
+            compiler_version="test",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="capture frontier does not match projection frontier",
+        ):
+            store.register_context_projection(
+                relabelled_projection,
+                request=request,
+                dependency_capture=snapshot,
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(relabelled_projection.id) is None
