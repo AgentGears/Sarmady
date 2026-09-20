@@ -22,6 +22,8 @@ class CognitiveRequest:
     def __post_init__(self) -> None:
         if not self.operation.strip():
             raise ValueError("operation is required")
+        if self.reasoning_policy_id is not None and not self.reasoning_policy_id.strip():
+            raise ValueError("reasoning_policy_id cannot be blank")
         _require_aware(self.created_at, "created_at")
 
 
