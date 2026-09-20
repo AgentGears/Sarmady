@@ -14,7 +14,7 @@ from sarmady.context import (
     CoverageStatus,
     ExactContextCompiler,
 )
-from sarmady.epistemic import Claim, Evidence, Event
+from sarmady.epistemic import Claim, ClaimRelation, ClaimRelationKind, Evidence, Event
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.kernel import Agent
 from sarmady.memory import MemoryEntry, MemoryKind
@@ -126,6 +126,109 @@ def test_frozen_mapping_supports_standard_copy_and_asdict_protocols() -> None:
     assert deep.value["nested"]["labels"] == ("a", "b")
     assert serialized["value"]["value"] == 1
     assert serialized["value"]["nested"]["labels"] == ("a", "b")
+
+
+def _fresh_claim_bundle():
+    event = Event(uuid4(), "OBSERVATION", T0, T0, {})
+    evidence = Evidence(uuid4(), event.id, "source", T0)
+    claim = Claim(
+        uuid4(),
+        "machine:primary",
+        "memory_gb",
+        64,
+        T0,
+        (evidence.id,),
+    )
+    memory = MemoryEntry(uuid4(), "Claim", claim.id, MemoryKind.SEMANTIC, T0)
+    return event, evidence, claim, memory
+
+
+@pytest.mark.parametrize(
+    ("target", "field_name", "replacement", "error"),
+    [
+        ("event", "kind", "", "kind is required"),
+        ("evidence", "source_ref", "", "source_ref is required"),
+        ("claim", "subject", "", "subject is required"),
+        ("claim", "value", float("nan"), "float values must be finite"),
+        ("memory", "target_type", "", "target_type is required"),
+    ],
+)
+def test_write_boundary_revalidates_postconstruction_mutation(
+    tmp_path,
+    target: str,
+    field_name: str,
+    replacement,
+    error: str,
+) -> None:
+    path = tmp_path / f"mutated-{target}-{field_name}.db"
+    event, evidence, claim, memory = _fresh_claim_bundle()
+    objects = {
+        "event": event,
+        "evidence": evidence,
+        "claim": claim,
+        "memory": memory,
+    }
+    object.__setattr__(objects[target], field_name, replacement)
+
+    with SQLiteCanonicalStore(path) as store:
+        with pytest.raises(ValueError, match=error):
+            store.commit_claim_bundle(
+                event=event,
+                evidence=evidence,
+                claim=claim,
+                memory=memory,
+            )
+        assert store.frontier() == 0
+        assert store.db.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+        assert store.db.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 0
+
+
+def test_write_boundary_revalidates_mutated_claim_relation(tmp_path) -> None:
+    path = tmp_path / "mutated-relation.db"
+    with SQLiteCanonicalStore(path) as store:
+        current = EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=64,
+            source_ref="seed",
+            observed_at=T0,
+        )
+        frontier_before = store.frontier()
+
+        event = Event(uuid4(), "OBSERVATION", T0 + timedelta(minutes=1), T0 + timedelta(minutes=1), {})
+        evidence = Evidence(uuid4(), event.id, "update", T0 + timedelta(minutes=1))
+        claim = Claim(
+            uuid4(),
+            "machine:primary",
+            "memory_gb",
+            96,
+            T0 + timedelta(minutes=1),
+            (evidence.id,),
+        )
+        memory = MemoryEntry(
+            uuid4(), "Claim", claim.id, MemoryKind.SEMANTIC, T0 + timedelta(minutes=1)
+        )
+        relation = ClaimRelation(
+            uuid4(),
+            claim.id,
+            current.id,
+            ClaimRelationKind.SUPERSEDES,
+            T0 + timedelta(minutes=1),
+        )
+        object.__setattr__(relation, "target_claim_id", claim.id)
+
+        with pytest.raises(ValueError, match="cannot point a claim to itself"):
+            store.commit_claim_bundle(
+                event=event,
+                evidence=evidence,
+                claim=claim,
+                memory=memory,
+                relation=relation,
+            )
+
+        assert store.frontier() == frontier_before
+        assert store.claim(claim.id) is None
+        assert store.evidence(evidence.id) is None
 
 
 def test_new_context_request_still_requires_positive_latency_budget() -> None:
