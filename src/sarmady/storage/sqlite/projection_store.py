@@ -14,6 +14,7 @@ from sarmady.context.models import (
 
 
 _UNPROVEN_CONTEXT_DEPENDENCY = "semantic:*"
+_SUPPORTED_CONTEXT_ITEM_TYPES = frozenset({"Claim", "Evidence"})
 
 
 class ProjectionStoreMixin:
@@ -58,6 +59,28 @@ class ProjectionStoreMixin:
         )
 
         canonical_frontier = int(projection.canonical_frontier)
+        if canonical_frontier < 0:
+            raise ValueError("projection canonical_frontier cannot be negative")
+        expected_snapshot_id = f"sqlite:{canonical_frontier}"
+        if projection.snapshot_id != expected_snapshot_id:
+            raise ValueError(
+                "projection snapshot_id must match canonical frontier "
+                f"({expected_snapshot_id!r})"
+            )
+
+        unsupported_types = sorted(
+            {
+                item.ref_type
+                for item in projection.items
+                if item.ref_type not in _SUPPORTED_CONTEXT_ITEM_TYPES
+            }
+        )
+        if unsupported_types:
+            raise ValueError(
+                "unsupported context projection item type(s): "
+                + ", ".join(unsupported_types)
+            )
+
         required_refs = frozenset(
             (item.ref_type, item.ref_id) for item in projection.items
         )
@@ -89,10 +112,6 @@ class ProjectionStoreMixin:
 
         with self._write_transaction():
             current_frontier = self.frontier()
-            if canonical_frontier < 0:
-                raise ValueError(
-                    "projection canonical_frontier cannot be negative"
-                )
             if canonical_frontier > current_frontier:
                 raise ValueError(
                     "projection canonical_frontier cannot exceed current frontier"
@@ -101,6 +120,14 @@ class ProjectionStoreMixin:
                 raise ValueError(
                     "projection compiled before current frontier requires captured dependency lineage"
                 )
+
+            # A persisted projection must be materializable by the current
+            # model-runtime contract. Captured lineage already proves historical
+            # snapshot membership; this existence fence also protects the
+            # intentionally allowed unproven/current-frontier registration path
+            # from admitting dangling canonical references.
+            self._validate_context_projection_items_in_tx(projection)
+
             self.db.execute(
                 """
                 INSERT OR IGNORE INTO context_requests(
@@ -213,6 +240,28 @@ class ProjectionStoreMixin:
                 ],
             )
         return stale
+
+    def _validate_context_projection_items_in_tx(
+        self,
+        projection: ContextProjection,
+    ) -> None:
+        for item in projection.items:
+            if item.ref_type == "Claim":
+                table = "claims"
+            elif item.ref_type == "Evidence":
+                table = "evidence"
+            else:  # guarded before capture consumption; fail closed if extended incorrectly
+                raise ValueError(
+                    f"unsupported context projection item type: {item.ref_type}"
+                )
+            exists = self.db.execute(
+                f"SELECT 1 FROM {table} WHERE id = ?",
+                (str(item.ref_id),),
+            ).fetchone()
+            if exists is None:
+                raise ValueError(
+                    f"context projection references unknown {item.ref_type} {item.ref_id}"
+                )
 
     def _dependency_keys_changed_since(self, frontier: int) -> set[str]:
         """Return context dependency keys changed after a semantic frontier.
