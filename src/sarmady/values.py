@@ -23,16 +23,17 @@ class FrozenDict(dict):
 def freeze_value(value: Any) -> Any:
     """Recursively detach mutable JSON-like values from caller-owned objects."""
 
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
     if isinstance(value, FrozenDict):
         return value
     if isinstance(value, Mapping):
-        return FrozenDict({key: freeze_value(item) for key, item in value.items()})
-    if isinstance(value, list):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("semantic mapping keys must be strings")
+            frozen[key] = freeze_value(item)
+        return FrozenDict(frozen)
+    if isinstance(value, (list, tuple)):
         return tuple(freeze_value(item) for item in value)
-    if isinstance(value, tuple):
-        return tuple(freeze_value(item) for item in value)
-    if isinstance(value, set):
-        return frozenset(freeze_value(item) for item in value)
-    if isinstance(value, frozenset):
-        return frozenset(freeze_value(item) for item in value)
-    return value
+    raise TypeError("semantic value must be JSON-compatible")
