@@ -1,9 +1,11 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
 
 from sarmady.context import (
+    CandidateSet,
+    ContextCandidate,
     ContextRequest,
     ControlledRequirementPlanner,
     CoverageContextCompiler,
@@ -11,6 +13,7 @@ from sarmady.context import (
     ExactCoverageRequirement,
     LexicalCandidateGenerator,
     RequirementPlanStatus,
+    context_request_fingerprint,
 )
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.storage.sqlite import SQLiteCanonicalStore
@@ -157,6 +160,34 @@ def test_planner_abstains_when_candidate_set_was_truncated(tmp_path) -> None:
         assert plan.reasons == ("candidate-set-non-exhaustive",)
 
 
+def test_planner_rejects_other_generator_exhaustiveness_claims(tmp_path) -> None:
+    path = tmp_path / "sarmady.db"
+    with SQLiteCanonicalStore(path) as store:
+        _observe(
+            store,
+            subject="machine:primary",
+            predicate="memory_gb",
+            value=64,
+        )
+        request = _request("primary memory")
+        lexical = LexicalCandidateGenerator(store).generate(request)
+        custom = CandidateSet(
+            request_id=lexical.request_id,
+            snapshot_id=lexical.snapshot_id,
+            canonical_frontier=lexical.canonical_frontier,
+            candidates=lexical.candidates,
+            generator_version="semantic-custom-v1",
+            request_fingerprint=lexical.request_fingerprint,
+            is_exhaustive=True,
+        )
+
+        plan = ControlledRequirementPlanner().plan(request, custom)
+
+        assert plan.status is RequirementPlanStatus.ABSTAINED
+        assert plan.reasons == ("unsupported-candidate-generator",)
+        assert plan.exact_requirements == ()
+
+
 def test_planner_does_not_convert_value_only_relevance_into_predicate_constraint(
     tmp_path,
 ) -> None:
@@ -179,7 +210,9 @@ def test_planner_does_not_convert_value_only_relevance_into_predicate_constraint
         assert plan.exact_requirements == ()
 
 
-def test_planner_abstains_on_multi_predicate_intent_in_v01(tmp_path) -> None:
+def test_planner_abstains_when_predicate_evidence_is_not_uniquely_interpretable(
+    tmp_path,
+) -> None:
     path = tmp_path / "sarmady.db"
     with SQLiteCanonicalStore(path) as store:
         _observe(
@@ -201,7 +234,7 @@ def test_planner_abstains_on_multi_predicate_intent_in_v01(tmp_path) -> None:
         plan = ControlledRequirementPlanner().plan(request, candidates)
 
         assert plan.status is RequirementPlanStatus.ABSTAINED
-        assert plan.reasons == ("unsupported-multi-predicate-intent",)
+        assert plan.reasons == ("predicate-ambiguous-or-multi-intent",)
         assert plan.exact_requirements == ()
 
 
@@ -222,6 +255,42 @@ def test_planner_rejects_candidate_set_bound_to_different_request_semantics(
 
         with pytest.raises(ValueError, match="does not match source request semantics"):
             ControlledRequirementPlanner().plan(altered, candidates)
+
+
+def test_request_fingerprint_normalizes_equivalent_timezone_offsets() -> None:
+    request_id = uuid4()
+    local = ContextRequest(
+        id=request_id,
+        query="primary memory",
+        token_budget=1024,
+        known_at=datetime(
+            2026,
+            9,
+            21,
+            0,
+            0,
+            tzinfo=timezone(timedelta(hours=3)),
+        ),
+        valid_at=datetime(
+            2026,
+            9,
+            21,
+            1,
+            0,
+            tzinfo=timezone(timedelta(hours=3)),
+        ),
+    )
+    utc = ContextRequest(
+        id=request_id,
+        query="primary memory",
+        token_budget=1024,
+        known_at=datetime(2026, 9, 20, 21, 0, tzinfo=UTC),
+        valid_at=datetime(2026, 9, 20, 22, 0, tzinfo=UTC),
+    )
+
+    assert local.known_at == utc.known_at
+    assert local.valid_at == utc.valid_at
+    assert context_request_fingerprint(local) == context_request_fingerprint(utc)
 
 
 def test_resolved_plan_derives_new_request_and_compiles_coverage(tmp_path) -> None:
@@ -278,6 +347,12 @@ def test_resolved_plan_derives_new_request_and_compiles_coverage(tmp_path) -> No
 
         with pytest.raises(ValueError, match="must use a new id"):
             planner.derive_request(source, plan, new_request_id=source.id)
+        with pytest.raises(TypeError, match="id must be UUID"):
+            planner.derive_request(
+                source,
+                plan,
+                new_request_id="not-a-uuid",  # type: ignore[arg-type]
+            )
 
 
 def test_nonresolved_plan_cannot_derive_request(tmp_path) -> None:
@@ -327,3 +402,30 @@ def test_planner_refuses_to_replace_preexisting_exact_requirements(tmp_path) -> 
 
         with pytest.raises(ValueError, match="without exact requirements"):
             ControlledRequirementPlanner().plan(request, candidates)
+
+
+def test_candidate_set_rejects_duplicate_semantic_keys() -> None:
+    request = _request("memory")
+    first = ContextCandidate(
+        subject="machine:primary",
+        predicate="memory_gb",
+        operative_claim_id=uuid4(),
+        rank_score=2.0,
+    )
+    duplicate = ContextCandidate(
+        subject="machine:primary",
+        predicate="memory_gb",
+        operative_claim_id=uuid4(),
+        rank_score=1.0,
+    )
+
+    with pytest.raises(ValueError, match="semantic keys must be unique"):
+        CandidateSet(
+            request_id=request.id,
+            snapshot_id="sqlite:1",
+            canonical_frontier="1",
+            candidates=(first, duplicate),
+            generator_version="lexical-v0.2",
+            request_fingerprint=context_request_fingerprint(request),
+            is_exhaustive=True,
+        )
