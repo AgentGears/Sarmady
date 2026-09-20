@@ -51,7 +51,7 @@ A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable p
 
 ## Cognition
 
-`CognitiveRequest` is a durable operational request for computation by one persistent `Agent` over one persisted context projection. `ReasoningPolicy` selects deliberation behavior. `ModelInvocation` records a particular compute attempt and its replaceable model binding. `GeneratedArtifact` is durable model-produced, non-authoritative output. These cognitive records do not advance epistemic truth merely by existing. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
+`CognitiveRequest` is a durable operational request for computation by one persistent `Agent` over one persisted context projection. `ReasoningPolicy` is an immutable, versioned semantic control contract with ordered stages, explicit requirements, source lineage, and a deterministic fingerprint. A policy is not a provider prompt. `ModelInvocation` records a particular compute attempt and its replaceable model binding. `GeneratedArtifact` is durable model-produced, non-authoritative output. These cognitive records do not advance epistemic truth merely by existing. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
 
 ## Executive state
 
