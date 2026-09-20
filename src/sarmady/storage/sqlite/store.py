@@ -13,7 +13,7 @@ from .cognitive_store import CognitiveStoreMixin
 from .epistemic_store import EpistemicStoreMixin
 from .identity_store import IdentityStoreMixin
 from .memory_store import MemoryStoreMixin
-from .projection_store import ProjectionStoreMixin
+from .projection_store import ProjectionStoreMixin, _UNPROVEN_CONTEXT_DEPENDENCY
 from .reasoning_store import ReasoningStoreMixin
 from .schema import initialize_schema
 
@@ -182,9 +182,25 @@ class SQLiteCanonicalStore(
         return frozenset(capture._keys)
 
     def _log(self, kind: str, ref_id: UUID, recorded_at: datetime) -> None:
-        self.db.execute(
+        cursor = self.db.execute(
             "INSERT INTO semantic_log(kind, ref_id, recorded_at) VALUES (?, ?, ?)",
             (kind, str(ref_id), iso(recorded_at)),
+        )
+        semantic_frontier = int(cursor.lastrowid)
+        self.db.execute(
+            """
+            UPDATE context_projections
+            SET stale = 1,
+                stale_reason = 'unproven-lineage-semantic-state-changed',
+                stale_at_frontier = ?
+            WHERE stale = 0
+              AND id IN (
+                SELECT projection_id
+                FROM context_projection_dependencies
+                WHERE dependency_key = ?
+              )
+            """,
+            (semantic_frontier, _UNPROVEN_CONTEXT_DEPENDENCY),
         )
 
     def frontier(self) -> int:
