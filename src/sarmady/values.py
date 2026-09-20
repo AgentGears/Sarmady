@@ -33,6 +33,13 @@ class FrozenMapping(Mapping[str, Any]):
     def __len__(self) -> int:
         return len(self._index)
 
+    @staticmethod
+    def _immutable(*args: Any, **kwargs: Any) -> None:
+        raise TypeError("frozen semantic value is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+
     def __setattr__(self, name: str, value: Any) -> None:
         raise TypeError("frozen semantic value is immutable")
 
