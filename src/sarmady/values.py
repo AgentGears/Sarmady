@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import weakref
 from collections.abc import Iterator, Mapping
 from typing import Any
@@ -112,9 +113,13 @@ class FrozenMapping(Mapping[str, Any]):
 
 
 def freeze_value(value: Any) -> Any:
-    """Recursively detach and freeze JSON-compatible semantic values."""
+    """Recursively detach and freeze strict-JSON-compatible semantic values."""
 
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("semantic float values must be finite")
         return value
     if isinstance(value, Mapping):
         # Always reconstruct, including FrozenMapping inputs, so callers cannot
