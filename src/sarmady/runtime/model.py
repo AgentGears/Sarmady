@@ -13,6 +13,7 @@ from sarmady.cognition import (
 )
 from sarmady.context import ContextProjection, CoverageStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
+from sarmady.values import thaw_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +194,7 @@ class CognitiveRuntime:
                 payload = {
                     "subject": claim.subject,
                     "predicate": claim.predicate,
-                    "value": claim.value,
+                    "value": thaw_value(claim.value),
                     "recorded_at": claim.recorded_at.isoformat(),
                     "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
                     "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
