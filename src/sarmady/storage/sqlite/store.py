@@ -23,6 +23,7 @@ from .schema import initialize_schema
 class _ContextDependencyState:
     frontier: int
     keys: set[str] = field(default_factory=set)
+    read_refs: set[tuple[str, UUID]] = field(default_factory=set)
     closed: bool = False
     consumed: bool = False
 
@@ -48,6 +49,10 @@ class _ContextDependencyCapture:
         state = self._require_open()
         state.keys.add(dependency_key)
 
+    def _record_read(self, ref_type: str, ref_id: UUID) -> None:
+        state = self._require_open()
+        state.read_refs.add((ref_type, ref_id))
+
     def resolved_state(
         self,
         subject: str,
@@ -68,38 +73,44 @@ class _ContextDependencyCapture:
         )
 
     def claim(self, claim_id: UUID):
-        self._require_open()
+        state = self._require_open()
         claim = self._store.claim(claim_id)
         if claim is None:
             # Absence is itself context state. Claim IDs are immutable once
             # present, but a missing ID can become present after this snapshot.
-            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
+            state.keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+        else:
+            state.read_refs.add(("Claim", claim.id))
         return claim
 
     def evidence(self, evidence_id: UUID):
-        self._require_open()
+        state = self._require_open()
         evidence = self._store.evidence(evidence_id)
         if evidence is None:
             # As with claims, a negative lookup must not be treated as timeless.
-            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
+            state.keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+        else:
+            state.read_refs.add(("Evidence", evidence.id))
         return evidence
 
     def memory_entry_for_target(self, target_type: str, target_id: UUID):
-        self._require_open()
+        state = self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
-            self._record_dependency(self._store.memory_dependency_key(entry.id))
+            state.keys.add(self._store.memory_dependency_key(entry.id))
+            state.read_refs.add(("MemoryEntry", entry.id))
         else:
-            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
+            state.keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
         return entry
 
     def is_active_memory_target(self, target_type: str, target_id: UUID) -> bool:
-        self._require_open()
+        state = self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
-            self._record_dependency(self._store.memory_dependency_key(entry.id))
+            state.keys.add(self._store.memory_dependency_key(entry.id))
+            state.read_refs.add(("MemoryEntry", entry.id))
         else:
-            self._record_dependency(_UNPROVEN_CONTEXT_DEPENDENCY)
+            state.keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
         return self._store.is_active_memory_target(target_type, target_id)
 
     @property
@@ -190,9 +201,10 @@ class SQLiteCanonicalStore(
 
         Context compilers must perform semantic reads through the yielded
         snapshot proxy. The receipt itself is frozen; its frontier, dependency
-        set, close state, and one-shot consumption state remain store-owned so a
-        caller cannot relabel or edit the proof after the pinned read closes.
-        Semantic reads after the SQLite snapshot closes are rejected.
+        set, successful object reads, close state, and one-shot consumption
+        state remain store-owned so a caller cannot relabel or edit the proof
+        after the pinned read closes. Semantic reads after the SQLite snapshot
+        closes are rejected.
         """
 
         if self._active_context_dependency_capture is not None:
@@ -214,7 +226,8 @@ class SQLiteCanonicalStore(
         capture: object | None,
         *,
         frontier: int,
-    ) -> frozenset[str] | None:
+        required_refs: frozenset[tuple[str, UUID]] = frozenset(),
+    ) -> tuple[frozenset[str], frozenset[tuple[str, UUID]]] | None:
         if capture is None:
             return None
         if not isinstance(capture, _ContextDependencyCapture):
@@ -232,8 +245,21 @@ class SQLiteCanonicalStore(
             raise ValueError(
                 "context dependency capture frontier does not match projection frontier"
             )
+        missing_refs = required_refs - state.read_refs
+        if missing_refs:
+            formatted = ", ".join(
+                f"{ref_type}:{ref_id}"
+                for ref_type, ref_id in sorted(
+                    missing_refs,
+                    key=lambda item: (item[0], str(item[1])),
+                )
+            )
+            raise ValueError(
+                "context dependency capture did not read all projection items: "
+                + formatted
+            )
         state.consumed = True
-        return frozenset(state.keys)
+        return frozenset(state.keys), frozenset(state.read_refs)
 
     def _log(self, kind: str, ref_id: UUID, recorded_at: datetime) -> None:
         cursor = self.db.execute(
