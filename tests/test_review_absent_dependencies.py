@@ -5,7 +5,13 @@ from uuid import uuid4
 
 import pytest
 
-from sarmady.context import ContextProjection, ContextRequest, CoverageStatus
+from sarmady.context import (
+    ContextItem,
+    ContextProjection,
+    ContextRequest,
+    CoverageStatus,
+)
+from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.kernel import Agent
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
@@ -135,3 +141,126 @@ def test_context_lineage_receipt_cannot_be_relabelled_to_newer_frontier(tmp_path
 
         assert store.context_request(request.id) is None
         assert store.context_projection(relabelled_projection.id) is None
+
+
+def test_context_capture_must_substantiate_projection_items(tmp_path) -> None:
+    path = tmp_path / "projection-item-lineage.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "bound projection items", 512)
+        with store.context_read_snapshot() as snapshot:
+            captured_frontier = snapshot.frontier
+
+        # This claim did not exist in the captured snapshot and was never read
+        # through its proxy. It therefore cannot be inserted into a projection
+        # advertised as belonging to that older snapshot.
+        claim = EpistemicMemoryService(store).observe_claim(
+            subject="post:snapshot",
+            predicate="value",
+            value=1,
+            source_ref="seed:after-snapshot",
+            observed_at=T0,
+        )
+        assert store.frontier() > captured_frontier
+
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{captured_frontier}",
+            canonical_frontier=str(captured_frontier),
+            items=(ContextItem("Claim", claim.id, "essential_now"),),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest="sha256:unsubstantiated-item",
+            compiler_version="external-test",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="did not read all projection items",
+        ):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_capture=snapshot,
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+def test_successful_snapshot_read_substantiates_projection_item(tmp_path) -> None:
+    path = tmp_path / "substantiated-projection-item.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        claim = EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="serial",
+            value="ABC-123",
+            source_ref="seed:before-snapshot",
+            observed_at=T0,
+        )
+        request = ContextRequest(uuid4(), "serial", 512)
+
+        with store.context_read_snapshot() as snapshot:
+            captured_frontier = snapshot.frontier
+            assert snapshot.claim(claim.id) == claim
+            projection = ContextProjection(
+                id=uuid4(),
+                request_id=request.id,
+                snapshot_id=f"sqlite:{captured_frontier}",
+                canonical_frontier=str(captured_frontier),
+                items=(ContextItem("Claim", claim.id, "essential_now"),),
+                coverage_status=CoverageStatus.COMPLETE,
+                manifest_digest="sha256:substantiated-item",
+                compiler_version="external-test",
+            )
+
+        # An unrelated semantic write after the snapshot does not change the
+        # immutable claim ID that was successfully read inside the snapshot.
+        store.register_agent(Agent(uuid4(), "unrelated", T0))
+        assert store.frontier() > captured_frontier
+
+        stale = store.register_context_projection(
+            projection,
+            request=request,
+            dependency_capture=snapshot,
+        )
+
+        assert not stale
+        assert not store.projection_is_stale(projection.id)
+
+
+def test_untouched_capture_does_not_prove_advanced_lineage(tmp_path) -> None:
+    path = tmp_path / "untouched-capture.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        request = ContextRequest(uuid4(), "untouched lineage", 512)
+        with store.context_read_snapshot() as snapshot:
+            captured_frontier = snapshot.frontier
+
+        store.register_agent(Agent(uuid4(), "frontier-advance", T0))
+        assert store.frontier() > captured_frontier
+
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{captured_frontier}",
+            canonical_frontier=str(captured_frontier),
+            items=(),
+            coverage_status=CoverageStatus.INSUFFICIENT,
+            manifest_digest="sha256:untouched-lineage",
+            compiler_version="external-test",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="requires captured dependency lineage",
+        ):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_capture=snapshot,
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
