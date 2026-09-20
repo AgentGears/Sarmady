@@ -37,7 +37,10 @@ class ModelInput:
     reasoning_policy: ReasoningPolicy | None
     items: tuple[ModelContextItem, ...]
     conflict_refs: tuple[UUID, ...] = ()
-    coverage_status: CoverageStatus = field(kw_only=True)
+    coverage_status: CoverageStatus = field(
+        default=CoverageStatus.INSUFFICIENT,
+        kw_only=True,
+    )
     unresolved_gaps: tuple[str, ...] = field(default=(), kw_only=True)
     omitted_refs: tuple[UUID, ...] = field(default=(), kw_only=True)
 
