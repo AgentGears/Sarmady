@@ -61,16 +61,23 @@ class _ContextDependencyCapture:
         known_at: datetime | None = None,
         valid_at: datetime | None = None,
     ):
-        self._record_dependency(
-            self._store.epistemic_dependency_key(subject, predicate)
-        )
-        return self._store.resolved_state(
+        state = self._require_open()
+        state.keys.add(self._store.epistemic_dependency_key(subject, predicate))
+        resolved = self._store.resolved_state(
             subject,
             predicate,
             known_at=known_at,
             valid_at=valid_at,
-            snapshot_frontier=self.frontier,
+            snapshot_frontier=state.frontier,
         )
+        # Conflict IDs are model-visible projection metadata. Recording the
+        # relations returned by resolution lets registration prove that those
+        # opaque references really belonged to this pinned snapshot.
+        state.read_refs.update(
+            ("ClaimRelation", relation_id)
+            for relation_id in resolved.conflict_relation_ids
+        )
+        return resolved
 
     def claim(self, claim_id: UUID):
         state = self._require_open()
@@ -227,6 +234,7 @@ class SQLiteCanonicalStore(
         *,
         frontier: int,
         required_refs: frozenset[tuple[str, UUID]] = frozenset(),
+        required_any_refs: frozenset[UUID] = frozenset(),
     ) -> tuple[frozenset[str], frozenset[tuple[str, UUID]]] | None:
         if capture is None:
             return None
@@ -246,17 +254,23 @@ class SQLiteCanonicalStore(
                 "context dependency capture frontier does not match projection frontier"
             )
         missing_refs = required_refs - state.read_refs
-        if missing_refs:
-            formatted = ", ".join(
+        read_ids = {ref_id for _, ref_id in state.read_refs}
+        missing_any_refs = required_any_refs - read_ids
+        if missing_refs or missing_any_refs:
+            formatted_refs = [
                 f"{ref_type}:{ref_id}"
                 for ref_type, ref_id in sorted(
                     missing_refs,
                     key=lambda item: (item[0], str(item[1])),
                 )
+            ]
+            formatted_refs.extend(
+                f"metadata:{ref_id}"
+                for ref_id in sorted(missing_any_refs, key=str)
             )
             raise ValueError(
-                "context dependency capture did not read all projection items: "
-                + formatted
+                "context dependency capture did not read all required projection references: "
+                + ", ".join(formatted_refs)
             )
         state.consumed = True
         return frozenset(state.keys), frozenset(state.read_refs)
