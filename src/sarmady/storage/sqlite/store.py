@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import UUID
 
 from ._codec import iso
@@ -21,10 +21,46 @@ from .schema import initialize_schema
 @dataclass(slots=True)
 class _ContextDependencyCapture:
     frontier: int
+    _store: Any = field(repr=False)
     _store_token: object = field(repr=False)
     _keys: set[str] = field(default_factory=set, repr=False)
     _closed: bool = field(default=False, repr=False)
     _consumed: bool = field(default=False, repr=False)
+
+    def resolved_state(
+        self,
+        subject: str,
+        predicate: str,
+        *,
+        known_at: datetime | None = None,
+        valid_at: datetime | None = None,
+    ):
+        self._keys.add(self._store.epistemic_dependency_key(subject, predicate))
+        return self._store.resolved_state(
+            subject,
+            predicate,
+            known_at=known_at,
+            valid_at=valid_at,
+            snapshot_frontier=self.frontier,
+        )
+
+    def claim(self, claim_id: UUID):
+        return self._store.claim(claim_id)
+
+    def evidence(self, evidence_id: UUID):
+        return self._store.evidence(evidence_id)
+
+    def memory_entry_for_target(self, target_type: str, target_id: UUID):
+        entry = self._store.memory_entry_for_target(target_type, target_id)
+        if entry is not None:
+            self._keys.add(self._store.memory_dependency_key(entry.id))
+        return entry
+
+    def is_active_memory_target(self, target_type: str, target_id: UUID) -> bool:
+        entry = self._store.memory_entry_for_target(target_type, target_id)
+        if entry is not None:
+            self._keys.add(self._store.memory_dependency_key(entry.id))
+        return self._store.is_active_memory_target(target_type, target_id)
 
     @property
     def dependency_keys(self) -> tuple[str, ...]:
@@ -98,12 +134,12 @@ class SQLiteCanonicalStore(
 
     @contextmanager
     def context_read_snapshot(self) -> Iterator[_ContextDependencyCapture]:
-        """Pin context reads and capture store-mediated semantic dependencies.
+        """Pin context reads and capture their semantic dependencies.
 
-        The returned capture is a one-shot lineage proof for projection
-        registration. Context compilers should obtain canonical state through
-        store methods while this scope is active rather than reading ``db``
-        directly, so every semantic dependency can be observed automatically.
+        Context compilers must perform semantic reads through the yielded
+        snapshot proxy. The resulting one-shot capture proves which dependency
+        keys were actually consulted and can therefore support dependency-aware
+        registration without trusting a caller-supplied declaration.
         """
 
         if self._active_context_dependency_capture is not None:
@@ -112,6 +148,7 @@ class SQLiteCanonicalStore(
         with self.read_snapshot() as frontier:
             capture = _ContextDependencyCapture(
                 frontier=frontier,
+                _store=self,
                 _store_token=self._context_dependency_token,
             )
             self._active_context_dependency_capture = capture
@@ -120,11 +157,6 @@ class SQLiteCanonicalStore(
             finally:
                 self._active_context_dependency_capture = None
                 capture._closed = True
-
-    def _record_context_dependency(self, dependency_key: str) -> None:
-        capture = self._active_context_dependency_capture
-        if capture is not None:
-            capture._keys.add(dependency_key)
 
     def _consume_context_dependency_capture(
         self,
