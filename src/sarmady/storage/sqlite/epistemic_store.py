@@ -55,12 +55,30 @@ class EpistemicStoreMixin:
             raise ValueError("memory entry must target the bundled claim")
         if memory.lifecycle is not MemoryLifecycle.ACTIVE:
             raise ValueError("new memory admission must begin ACTIVE")
+        if event.recorded_at != claim.recorded_at or memory.created_at != claim.recorded_at:
+            raise ValueError(
+                "event, claim, and memory admission must share one recorded_at"
+            )
+        if relation is not None and relation.recorded_at != claim.recorded_at:
+            raise ValueError(
+                "claim relation must share the bundled claim recorded_at"
+            )
+        if evidence.captured_at > claim.recorded_at:
+            raise ValueError("evidence cannot be captured after claim admission")
+        if claim.valid_from is not None and claim.valid_from > claim.recorded_at:
+            raise ValueError(
+                "future-valid claims require scheduled activation and are not supported in M1"
+            )
 
         with self._write_transaction():
             current = self.current_claim(claim.subject, claim.predicate)
             if current is None and relation is not None:
                 raise ValueError("initial claim cannot revise a missing current claim")
             if current is not None:
+                if claim.recorded_at < current.recorded_at:
+                    raise ValueError(
+                        "new claim recorded_at cannot precede the locked current claim"
+                    )
                 if relation is None:
                     raise ValueError(
                         "a claim over existing current state requires an explicit relation"
@@ -173,6 +191,8 @@ class EpistemicStoreMixin:
                 reason="epistemic-state-changed",
             )
 
+    # --- Epistemic reads and reconstruction ---------------------------------
+
     def current_claim(self, subject: str, predicate: str) -> Claim | None:
         row = self.db.execute(
             """
@@ -243,6 +263,8 @@ class EpistemicStoreMixin:
         valid_at: datetime | None = None,
         snapshot_frontier: int | None = None,
     ) -> ResolvedState:
+        # Public calls get a real read snapshot automatically. The compiler can
+        # pass the already-pinned frontier to avoid nesting transactions.
         if snapshot_frontier is None and not self.db.in_transaction:
             with self.read_snapshot() as frontier:
                 return resolve_state(
@@ -254,7 +276,20 @@ class EpistemicStoreMixin:
                     valid_at=valid_at,
                 )
 
-        frontier = self.frontier() if snapshot_frontier is None else snapshot_frontier
+        if snapshot_frontier is not None:
+            if not self.db.in_transaction:
+                raise RuntimeError(
+                    "snapshot_frontier is valid only inside an active pinned transaction"
+                )
+            actual_frontier = self.frontier()
+            if actual_frontier != snapshot_frontier:
+                raise RuntimeError(
+                    "snapshot_frontier does not match the active transaction snapshot"
+                )
+            frontier = actual_frontier
+        else:
+            frontier = self.frontier()
+
         return resolve_state(
             self.db,
             subject,
