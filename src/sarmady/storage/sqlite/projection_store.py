@@ -62,7 +62,8 @@ class ProjectionStoreMixin:
                     request.valid_at.isoformat() if request.valid_at else None,
                 ),
             )
-            stale = current_frontier != canonical_frontier
+            changed_dependencies = self._dependency_keys_changed_since(canonical_frontier)
+            stale = bool(set(dependency_keys) & changed_dependencies)
             persisted_request = self.context_request(request.id)
             if persisted_request != request:
                 raise ValueError(
@@ -86,7 +87,7 @@ class ProjectionStoreMixin:
                     projection.compiler_version,
                     projection.coverage_status.value,
                     1 if stale else 0,
-                    "frontier-advanced-before-registration" if stale else None,
+                    "dependency-changed-before-registration" if stale else None,
                     current_frontier if stale else None,
                 ),
             )
@@ -134,6 +135,50 @@ class ProjectionStoreMixin:
                 ],
             )
         return stale
+
+    def _dependency_keys_changed_since(self, frontier: int) -> set[str]:
+        """Return context dependency keys changed after a semantic frontier.
+
+        Registration uses this under the write lock so unrelated semantic-log
+        activity cannot stale a freshly compiled projection. SEEN/USED memory
+        telemetry is intentionally excluded because it does not change memory
+        admission/lifecycle state.
+        """
+
+        rows = self.db.execute(
+            """
+            SELECT DISTINCT 'epistemic-key:' || c.subject || ':' || c.predicate AS dependency_key
+            FROM semantic_log l
+            JOIN claims c ON l.kind = 'Claim' AND l.ref_id = c.id
+            WHERE l.seq > ?
+
+            UNION
+
+            SELECT DISTINCT 'epistemic-key:' || c.subject || ':' || c.predicate AS dependency_key
+            FROM semantic_log l
+            JOIN claim_relations r ON l.kind = 'ClaimRelation' AND l.ref_id = r.id
+            JOIN claims c ON c.id = r.source_claim_id
+            WHERE l.seq > ?
+
+            UNION
+
+            SELECT DISTINCT 'memory-entry:' || m.id AS dependency_key
+            FROM semantic_log l
+            JOIN memory_entries m ON l.kind = 'MemoryEntry' AND l.ref_id = m.id
+            WHERE l.seq > ?
+
+            UNION
+
+            SELECT DISTINCT 'memory-entry:' || e.memory_entry_id AS dependency_key
+            FROM semantic_log l
+            JOIN memory_lifecycle_events e
+              ON l.kind = 'MemoryLifecycleEvent' AND l.ref_id = e.id
+            WHERE l.seq > ?
+              AND e.event_kind NOT IN ('SEEN', 'USED')
+            """,
+            (frontier, frontier, frontier, frontier),
+        ).fetchall()
+        return {row["dependency_key"] for row in rows}
 
     def context_request(self, request_id: UUID) -> ContextRequest | None:
         row = self.db.execute(
