@@ -53,6 +53,29 @@ class _ContextDependencyCapture:
         state = self._require_open()
         state.read_refs.add((ref_type, ref_id))
 
+    def semantic_keys(self) -> tuple[tuple[str, str], ...]:
+        """Enumerate canonical claim keys visible in this pinned snapshot.
+
+        Enumeration is negative-space sensitive: a later semantic write can add
+        a key that did not exist at this frontier and thereby change candidate
+        ranking. Record the conservative wildcard dependency so a future
+        compiler that consumes this capture cannot treat the enumeration as
+        complete after any intervening semantic mutation.
+        """
+
+        state = self._require_open()
+        state.keys.add(_UNPROVEN_CONTEXT_DEPENDENCY)
+        rows = self._store.db.execute(
+            """
+            SELECT DISTINCT c.subject, c.predicate
+            FROM claims c
+            JOIN semantic_log l
+              ON l.kind = 'Claim' AND l.ref_id = c.id
+            ORDER BY c.subject, c.predicate
+            """
+        ).fetchall()
+        return tuple((row["subject"], row["predicate"]) for row in rows)
+
     def resolved_state(
         self,
         subject: str,
