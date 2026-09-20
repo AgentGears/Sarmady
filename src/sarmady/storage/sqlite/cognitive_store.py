@@ -25,6 +25,13 @@ class CognitiveStoreMixin:
             # cannot race request admission.
             if self.projection_is_stale(request.context_projection_id):
                 raise ValueError("cannot invoke cognition from a stale context projection")
+            if (
+                request.reasoning_policy_id is not None
+                and self.reasoning_policy(request.reasoning_policy_id) is None
+            ):
+                raise ValueError(
+                    f"unknown reasoning policy {request.reasoning_policy_id!r}"
+                )
             self.db.execute(
                 """
                 INSERT INTO cognitive_requests(
