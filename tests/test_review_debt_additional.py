@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from copy import copy, deepcopy
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -89,6 +91,27 @@ def test_frozen_mapping_exposes_no_mutable_backing_attributes() -> None:
         object.__setattr__(admitted, "_index", {"value": 2})
 
     assert admitted["value"] == 1
+
+
+def test_frozen_mapping_supports_standard_copy_and_asdict_protocols() -> None:
+    claim = Claim(
+        uuid4(),
+        "subject",
+        "predicate",
+        {"value": 1, "nested": {"labels": ["a", "b"]}},
+        T0,
+    )
+
+    shallow = copy(claim)
+    deep = deepcopy(claim)
+    serialized = asdict(claim)
+
+    assert shallow == claim
+    assert deep == claim
+    assert isinstance(deep.value, FrozenMapping)
+    assert deep.value["nested"]["labels"] == ("a", "b")
+    assert serialized["value"]["value"] == 1
+    assert serialized["value"]["nested"]["labels"] == ("a", "b")
 
 
 def test_new_context_request_still_requires_positive_latency_budget() -> None:
