@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 
@@ -12,19 +12,37 @@ class FrozenMapping(Mapping[str, Any], tuple):
     ``object.__setattr__`` or by calling ``__init__`` again. This is also
     deliberately not a ``dict`` subclass: unbound built-in dict mutators cannot
     bypass the immutability boundary.
+
+    Construction accepts either a mapping or an iterable of key/value pairs so
+    Python's tuple reconstruction protocol used by ``copy``/``deepcopy`` and
+    ``dataclasses.asdict`` remains compatible with this immutable tuple-backed
+    representation.
     """
 
     __slots__ = ()
 
-    def __new__(cls, source: Mapping[str, Any]) -> FrozenMapping:
-        normalized: list[tuple[str, Any]] = []
-        for key, item in source.items():
+    def __new__(
+        cls,
+        source: Mapping[str, Any] | Iterable[tuple[str, Any]],
+    ) -> FrozenMapping:
+        pairs = source.items() if isinstance(source, Mapping) else source
+        normalized: dict[str, Any] = {}
+        for pair in pairs:
+            try:
+                key, item = pair
+            except (TypeError, ValueError):
+                raise TypeError(
+                    "semantic mapping source must yield key/value pairs"
+                ) from None
             if not isinstance(key, str):
                 raise TypeError("semantic mapping keys must be strings")
-            normalized.append((key, freeze_value(item)))
-        return tuple.__new__(cls, tuple(normalized))
+            normalized[key] = freeze_value(item)
+        return tuple.__new__(cls, tuple(normalized.items()))
 
-    def __init__(self, source: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        source: Mapping[str, Any] | Iterable[tuple[str, Any]],
+    ) -> None:
         # All state is constructed immutably in __new__. Re-entering __init__
         # on an admitted value is therefore harmless and cannot replace state.
         del source
