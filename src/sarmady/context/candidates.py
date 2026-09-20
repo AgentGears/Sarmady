@@ -23,18 +23,18 @@ class LexicalCandidateGenerator:
     coverage requirements, or mark relevance as sufficient context.
     """
 
-    version = "lexical-v0.1"
+    __slots__ = ("store",)
 
-    predicate_weight = 5
-    subject_weight = 3
-    value_weight = 1
+    version = "lexical-v0.1"
 
     def __init__(self, store: SQLiteCanonicalStore):
         self.store = store
 
     def generate(self, request: ContextRequest, *, limit: int = 20) -> CandidateSet:
-        if limit <= 0:
-            raise ValueError("candidate limit must be positive")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("candidate limit must be a positive integer")
+        if not isinstance(request.query, str):
+            raise TypeError("context request query must be a string")
 
         query_terms = tuple(sorted(_tokenize(request.query)))
         if not query_terms:
@@ -83,24 +83,27 @@ class LexicalCandidateGenerator:
                 if not matched_terms:
                     continue
 
-                score = (
-                    self.predicate_weight * len(predicate_matches)
-                    + self.subject_weight * len(subject_matches)
-                    + self.value_weight * len(value_matches)
+                # These literals are part of lexical-v0.1. Keeping them inside
+                # the implementation prevents callers from mutating a public
+                # scoring profile while retaining the same generator version.
+                rank_score = float(
+                    5 * len(predicate_matches)
+                    + 3 * len(subject_matches)
+                    + len(value_matches)
                 )
                 candidates.append(
                     ContextCandidate(
                         subject=subject,
                         predicate=predicate,
                         operative_claim_id=operative.id,
-                        score=score,
-                        matched_terms=matched_terms,
+                        rank_score=rank_score,
+                        signals=tuple(f"term:{term}" for term in matched_terms),
                     )
                 )
 
             candidates.sort(
                 key=lambda candidate: (
-                    -candidate.score,
+                    -candidate.rank_score,
                     candidate.subject,
                     candidate.predicate,
                     str(candidate.operative_claim_id),
@@ -112,7 +115,6 @@ class LexicalCandidateGenerator:
             request_id=request.id,
             snapshot_id=f"sqlite:{frontier}",
             canonical_frontier=str(frontier),
-            query_terms=query_terms,
             candidates=selected,
             generator_version=self.version,
         )
