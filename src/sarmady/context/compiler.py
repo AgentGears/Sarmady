@@ -26,17 +26,13 @@ class ExactContextCompiler:
     def compile(
         self, request: ContextRequest, *, subject: str, predicate: str
     ) -> ContextProjection:
-        dependency_keys: set[str] = {
-            self.store.epistemic_dependency_key(subject, predicate)
-        }
-
-        with self.store.read_snapshot() as frontier:
-            state = self.store.resolved_state(
+        with self.store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
+            state = snapshot.resolved_state(
                 subject,
                 predicate,
                 known_at=request.known_at,
                 valid_at=request.valid_at,
-                snapshot_frontier=frontier,
             )
             items: list[ContextItem] = []
             gaps: list[str] = []
@@ -50,21 +46,18 @@ class ExactContextCompiler:
                 for index, claim_id in enumerate(claim_ids):
                     if claim_id is None:
                         continue
-                    claim = self.store.claim(claim_id)
+                    claim = snapshot.claim(claim_id)
                     if claim is None:
                         gaps.append(f"missing-claim:{claim_id}")
                         continue
 
-                    memory = self.store.memory_entry_for_target("Claim", claim.id)
+                    memory = snapshot.memory_entry_for_target("Claim", claim.id)
                     if memory is None:
                         gaps.append(f"claim-not-admitted-to-memory:{claim.id}")
                         omitted_refs.append(claim.id)
                         continue
 
-                    dependency_keys.add(
-                        self.store.memory_dependency_key(memory.id)
-                    )
-                    if not self.store.is_active_memory_target("Claim", claim.id):
+                    if not snapshot.is_active_memory_target("Claim", claim.id):
                         gaps.append(f"claim-memory-not-active:{claim.id}")
                         omitted_refs.append(claim.id)
                         continue
@@ -83,7 +76,7 @@ class ExactContextCompiler:
                         seen_refs.add(key)
 
                     for evidence_id in claim.evidence_refs:
-                        evidence = self.store.evidence(evidence_id)
+                        evidence = snapshot.evidence(evidence_id)
                         if evidence is None:
                             gaps.append(f"missing-evidence:{evidence_id}")
                             continue
@@ -141,6 +134,6 @@ class ExactContextCompiler:
         self.store.register_context_projection(
             projection,
             request=request,
-            dependency_keys=tuple(dependency_keys),
+            dependency_capture=snapshot,
         )
         return projection
