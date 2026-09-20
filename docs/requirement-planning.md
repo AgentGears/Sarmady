@@ -60,15 +60,20 @@ A non-resolved plan is structurally forbidden from carrying exact requirements. 
 1. the source request has no pre-existing exact requirements;
 2. the candidate set references the same request ID;
 3. the candidate set carries the exact source-request fingerprint;
-4. the candidate set is exhaustive under its generator's matching rule.
+4. the candidate set was produced by `lexical-v0.2`;
+5. the candidate set is exhaustive under `lexical-v0.2`'s matching rule.
 
-The exhaustiveness requirement matters because candidate uniqueness is not meaningful after top-k truncation. If retrieval found five matching subjects but returned only the top one, the top result cannot safely be treated as uniquely identified.
+The generator-version pin is intentional. `is_exhaustive` is generator-relative: an approximate or vector retriever may honestly be exhaustive over its own threshold/search universe while still omitting semantic keys that the controlled lexical planner needs in order to prove identity uniqueness. A future planner that understands another retrieval contract must use a new planner version or an explicit compatibility contract rather than treating the boolean as universally interchangeable.
 
-`lexical-v0.2` therefore reports `is_exhaustive=False` whenever `limit` drops one or more lexical matches. The planner abstains before identity resolution in that case.
+The exhaustiveness requirement matters because candidate uniqueness is not meaningful after top-k truncation. If lexical retrieval found five matching subjects but returned only the top one, the top result cannot safely be treated as uniquely identified.
+
+`lexical-v0.2` therefore reports `is_exhaustive=False` whenever `limit` drops one or more lexical matches. The planner abstains before identity resolution in that case. A candidate set from another generator causes `unsupported-candidate-generator` abstention even when that generator marks its own result exhaustive.
+
+The source-request fingerprint is canonical across equivalent timezone-offset representations: temporal selectors are normalized to UTC before hashing. This binds semantic time, not merely the original ISO offset spelling.
 
 ## Controlled v0.1 resolution rules
 
-The first planner handles exactly one explicit predicate intent.
+The first planner emits at most one exact predicate obligation.
 
 ### Predicate
 
@@ -81,11 +86,11 @@ Examples:
 
 If no predicate has direct lexical evidence, the planner abstains with `no-explicit-predicate-evidence`.
 
-If more than one distinct predicate has direct lexical evidence, v0.1 abstains with `unsupported-multi-predicate-intent`. Multi-intent decomposition is deliberately deferred rather than approximated.
+If more than one distinct predicate has direct lexical evidence, v0.1 abstains with `predicate-ambiguous-or-multi-intent`. The controlled parser does not claim to know whether the question expresses several intended facts or one lexically ambiguous predicate. Multi-intent decomposition and predicate disambiguation are deliberately deferred rather than approximated.
 
 ### Subject
 
-If only one subject remains for the resolved predicate in an exhaustive candidate set, that subject is selected.
+If only one subject remains for the resolved predicate in an exhaustive `lexical-v0.2` candidate set, that subject is selected.
 
 If several subjects remain, the planner considers only **discriminating subject tokens**: tokens appearing in one candidate subject but not the other subjects in the same predicate pool. A query such as `alpha machine memory` may therefore resolve `machine:alpha`, while `machine memory` remains ambiguous between `machine:alpha` and `machine:beta`.
 
@@ -134,6 +139,7 @@ Only a later context-projection registration persists the derived `ContextReques
 - pronouns, ellipsis, or multi-turn reference resolution;
 - learned entity resolution;
 - multi-predicate/multi-intent decomposition;
+- predicate ambiguity resolution;
 - temporal phrase parsing beyond the temporal selectors already present on `ContextRequest`;
 - LLM-based planning;
 - semantic/vector candidate generation;
