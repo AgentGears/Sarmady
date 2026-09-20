@@ -92,6 +92,56 @@ class ContextRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextCandidate:
+    """One derived semantic-key candidate for a context request.
+
+    A candidate is relevance evidence only. It does not imply that a context
+    requirement is satisfied, that the referenced claim should be adopted, or
+    that the candidate should be written back into canonical memory.
+    """
+
+    subject: str
+    predicate: str
+    operative_claim_id: UUID
+    score: int
+    matched_terms: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.subject.strip():
+            raise ValueError("candidate subject is required")
+        if not self.predicate.strip():
+            raise ValueError("candidate predicate is required")
+        if self.score <= 0:
+            raise ValueError("candidate score must be positive")
+        if not self.matched_terms:
+            raise ValueError("candidate matched_terms cannot be empty")
+        if len(self.matched_terms) != len(set(self.matched_terms)):
+            raise ValueError("candidate matched_terms must be unique")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSet:
+    """Immutable snapshot-bound output from a candidate generator."""
+
+    request_id: UUID
+    snapshot_id: str
+    canonical_frontier: str
+    query_terms: tuple[str, ...]
+    candidates: tuple[ContextCandidate, ...]
+    generator_version: str
+
+    def __post_init__(self) -> None:
+        if not self.snapshot_id:
+            raise ValueError("candidate snapshot_id is required")
+        if not self.canonical_frontier:
+            raise ValueError("candidate canonical_frontier is required")
+        if not self.generator_version:
+            raise ValueError("candidate generator_version is required")
+        if len(self.query_terms) != len(set(self.query_terms)):
+            raise ValueError("candidate query_terms must be unique")
+
+
+@dataclass(frozen=True, slots=True)
 class ContextItem:
     ref_type: str
     ref_id: UUID
