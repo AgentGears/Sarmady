@@ -27,6 +27,10 @@ class _ContextDependencyCapture:
     _closed: bool = field(default=False, repr=False)
     _consumed: bool = field(default=False, repr=False)
 
+    def _require_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("context read snapshot is closed")
+
     def resolved_state(
         self,
         subject: str,
@@ -35,6 +39,7 @@ class _ContextDependencyCapture:
         known_at: datetime | None = None,
         valid_at: datetime | None = None,
     ):
+        self._require_open()
         self._keys.add(self._store.epistemic_dependency_key(subject, predicate))
         return self._store.resolved_state(
             subject,
@@ -45,6 +50,7 @@ class _ContextDependencyCapture:
         )
 
     def claim(self, claim_id: UUID):
+        self._require_open()
         claim = self._store.claim(claim_id)
         if claim is None:
             # Absence is itself context state. Claim IDs are immutable once
@@ -53,6 +59,7 @@ class _ContextDependencyCapture:
         return claim
 
     def evidence(self, evidence_id: UUID):
+        self._require_open()
         evidence = self._store.evidence(evidence_id)
         if evidence is None:
             # As with claims, a negative lookup must not be treated as timeless.
@@ -60,6 +67,7 @@ class _ContextDependencyCapture:
         return evidence
 
     def memory_entry_for_target(self, target_type: str, target_id: UUID):
+        self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
             self._keys.add(self._store.memory_dependency_key(entry.id))
@@ -68,6 +76,7 @@ class _ContextDependencyCapture:
         return entry
 
     def is_active_memory_target(self, target_type: str, target_id: UUID) -> bool:
+        self._require_open()
         entry = self._store.memory_entry_for_target(target_type, target_id)
         if entry is not None:
             self._keys.add(self._store.memory_dependency_key(entry.id))
@@ -152,7 +161,9 @@ class SQLiteCanonicalStore(
         Context compilers must perform semantic reads through the yielded
         snapshot proxy. The resulting one-shot capture proves which dependency
         keys were actually consulted and can therefore support dependency-aware
-        registration without trusting a caller-supplied declaration.
+        registration without trusting a caller-supplied declaration. The proxy
+        expires when this context exits; semantic reads after the pinned SQLite
+        snapshot closes are rejected rather than mislabeled with its frontier.
         """
 
         if self._active_context_dependency_capture is not None:
