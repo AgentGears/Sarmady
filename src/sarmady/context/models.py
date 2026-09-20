@@ -18,6 +18,26 @@ class CoverageStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ExactCoverageRequirement:
+    """One exact semantic obligation for bounded context compilation."""
+
+    key: str
+    subject: str
+    predicate: str
+    role: str = "essential_now"
+
+    def __post_init__(self) -> None:
+        if not self.key.strip():
+            raise ValueError("coverage requirement key is required")
+        if not self.subject.strip():
+            raise ValueError("coverage requirement subject is required")
+        if not self.predicate.strip():
+            raise ValueError("coverage requirement predicate is required")
+        if not self.role.strip():
+            raise ValueError("coverage requirement role is required")
+
+
+@dataclass(frozen=True, slots=True)
 class ContextRequest:
     id: UUID
     query: str
@@ -26,12 +46,18 @@ class ContextRequest:
     goal_ref: UUID | None = None
     task_ref: UUID | None = None
     coverage_requirements: tuple[str, ...] = ()
+    exact_requirements: tuple[ExactCoverageRequirement, ...] = ()
     known_at: datetime | None = None
     valid_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.token_budget <= 0:
             raise ValueError("token_budget must be positive")
+        if self.latency_budget_ms is not None and self.latency_budget_ms <= 0:
+            raise ValueError("latency_budget_ms must be positive when provided")
+        requirement_keys = [item.key for item in self.exact_requirements]
+        if len(requirement_keys) != len(set(requirement_keys)):
+            raise ValueError("exact coverage requirement keys must be unique")
         if self.known_at is not None:
             _require_aware(self.known_at, "known_at")
         if self.valid_at is not None:
