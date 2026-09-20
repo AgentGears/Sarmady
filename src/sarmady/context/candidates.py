@@ -30,7 +30,7 @@ class LexicalCandidateGenerator:
 
     __slots__ = ("store",)
 
-    version = "lexical-v0.1"
+    version = "lexical-v0.2"
 
     def __init__(self, store: SQLiteCanonicalStore):
         self.store = store
@@ -89,7 +89,7 @@ class LexicalCandidateGenerator:
                 if not matched_terms:
                     continue
 
-                # These literals are part of lexical-v0.1. Keeping them inside
+                # These literals are part of lexical-v0.2. Keeping them inside
                 # the implementation prevents callers from mutating a public
                 # scoring profile while retaining the same generator version.
                 rank_score = float(
