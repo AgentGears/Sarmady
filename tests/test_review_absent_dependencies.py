@@ -11,6 +11,7 @@ from sarmady.context import (
     ContextRequest,
     CoverageStatus,
 )
+from sarmady.epistemic import ClaimRelationKind
 from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.kernel import Agent
 from sarmady.storage.sqlite import SQLiteCanonicalStore
@@ -176,7 +177,7 @@ def test_context_capture_must_substantiate_projection_items(tmp_path) -> None:
 
         with pytest.raises(
             ValueError,
-            match="did not read all projection items",
+            match="did not read all required projection references",
         ):
             store.register_context_projection(
                 projection,
@@ -371,3 +372,113 @@ def test_unproven_current_projection_with_existing_item_remains_supported(tmp_pa
         # semantic write invalidates the projection through its wildcard.
         store.register_agent(Agent(uuid4(), "later-change", T0))
         assert store.projection_is_stale(projection.id)
+
+
+@pytest.mark.parametrize("metadata_kind", ["provenance", "conflict", "omitted"])
+def test_capture_rejects_projection_metadata_not_read_in_snapshot(
+    tmp_path,
+    metadata_kind: str,
+) -> None:
+    path = tmp_path / f"metadata-lineage-{metadata_kind}.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        service = EpistemicMemoryService(store)
+        original = service.observe_claim(
+            subject="machine:primary",
+            predicate="serial",
+            value="ABC-123",
+            source_ref="seed:before-snapshot",
+            observed_at=T0,
+        )
+        request = ContextRequest(uuid4(), "serial with lineage", 512)
+
+        with store.context_read_snapshot() as snapshot:
+            frontier = snapshot.frontier
+            assert snapshot.claim(original.id) == original
+
+        later = service.observe_claim(
+            subject="machine:primary",
+            predicate="serial",
+            value="XYZ-999",
+            source_ref="seed:after-snapshot",
+            observed_at=T0,
+            relation_kind=ClaimRelationKind.CONTRADICTS,
+        )
+        relation = store.relations_for(later.id)[0]
+        later_evidence = later.evidence_refs[0]
+
+        item = ContextItem(
+            "Claim",
+            original.id,
+            "essential_now",
+            (later_evidence,) if metadata_kind == "provenance" else (),
+        )
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(item,),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest=f"sha256:metadata-lineage-{metadata_kind}",
+            compiler_version="external-test",
+            conflict_refs=(relation.id,) if metadata_kind == "conflict" else (),
+            omitted_refs=(later.id,) if metadata_kind == "omitted" else (),
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="did not read all required projection references",
+        ):
+            store.register_context_projection(
+                projection,
+                request=request,
+                dependency_capture=snapshot,
+            )
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
+
+
+@pytest.mark.parametrize("metadata_kind", ["provenance", "conflict", "omitted"])
+def test_unproven_current_projection_rejects_dangling_metadata_refs(
+    tmp_path,
+    metadata_kind: str,
+) -> None:
+    path = tmp_path / f"dangling-metadata-{metadata_kind}.db"
+
+    with SQLiteCanonicalStore(path) as store:
+        claim = EpistemicMemoryService(store).observe_claim(
+            subject="machine:primary",
+            predicate="serial",
+            value="ABC-123",
+            source_ref="seed:current",
+            observed_at=T0,
+        )
+        missing_ref = uuid4()
+        request = ContextRequest(uuid4(), "manual current metadata", 512)
+        frontier = store.frontier()
+        item = ContextItem(
+            "Claim",
+            claim.id,
+            "essential_now",
+            (missing_ref,) if metadata_kind == "provenance" else (),
+        )
+        projection = ContextProjection(
+            id=uuid4(),
+            request_id=request.id,
+            snapshot_id=f"sqlite:{frontier}",
+            canonical_frontier=str(frontier),
+            items=(item,),
+            coverage_status=CoverageStatus.COMPLETE,
+            manifest_digest=f"sha256:dangling-metadata-{metadata_kind}",
+            compiler_version="external-test",
+            conflict_refs=(missing_ref,) if metadata_kind == "conflict" else (),
+            omitted_refs=(missing_ref,) if metadata_kind == "omitted" else (),
+        )
+
+        with pytest.raises(ValueError, match="references unknown"):
+            store.register_context_projection(projection, request=request)
+
+        assert store.context_request(request.id) is None
+        assert store.context_projection(projection.id) is None
