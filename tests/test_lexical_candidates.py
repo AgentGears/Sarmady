@@ -9,6 +9,7 @@ from sarmady.context import (
     ContextCandidate,
     ContextRequest,
     LexicalCandidateGenerator,
+    context_request_fingerprint,
 )
 from sarmady.epistemic import ClaimRelationKind, ResolutionStatus
 from sarmady.epistemic.service import EpistemicMemoryService
@@ -54,10 +55,9 @@ def test_lexical_candidates_rank_predicate_match_over_subject_only(tmp_path) -> 
     with SQLiteCanonicalStore(path) as store:
         memory = _observe(store, predicate="memory_gb", value=64)
         os_claim = _observe(store, predicate="os", value="linux")
+        request = _request("machine memory")
 
-        result = LexicalCandidateGenerator(store).generate(
-            _request("machine memory")
-        )
+        result = LexicalCandidateGenerator(store).generate(request)
 
         assert [candidate.operative_claim_id for candidate in result.candidates] == [
             memory.id,
@@ -66,6 +66,9 @@ def test_lexical_candidates_rank_predicate_match_over_subject_only(tmp_path) -> 
         assert result.candidates[0].rank_score > result.candidates[1].rank_score
         assert result.candidates[0].signals == ("term:machine", "term:memory")
         assert result.snapshot_id == f"sqlite:{result.canonical_frontier}"
+        assert result.request_fingerprint == context_request_fingerprint(request)
+        assert result.is_exhaustive is True
+        assert result.generator_version == "lexical-v0.2"
 
 
 def test_candidate_generation_respects_active_memory_without_seen_or_used_writes(
@@ -89,6 +92,7 @@ def test_candidate_generation_respects_active_memory_without_seen_or_used_writes
         result = LexicalCandidateGenerator(store).generate(request)
 
         assert result.candidates == ()
+        assert result.is_exhaustive is True
         assert store.frontier() == frontier_before
         assert store.memory_access_counts(memory.id) == counts_before == (0, 0)
         assert store.context_request(request.id) is None
@@ -175,7 +179,9 @@ def test_candidate_generation_is_deterministic_and_honors_limit(tmp_path) -> Non
         assert first.candidates == second.candidates
         assert len(first.candidates) == 1
         assert first.candidates[0].operative_claim_id == alpha.id
-        assert first.generator_version == "lexical-v0.1"
+        assert first.generator_version == "lexical-v0.2"
+        assert first.is_exhaustive is False
+        assert second.is_exhaustive is False
         with pytest.raises(AttributeError):
             generator.predicate_weight = 99  # type: ignore[attr-defined]
 
@@ -240,6 +246,7 @@ def test_candidate_contract_defensively_freezes_caller_owned_collections() -> No
     )
     raw_candidates.clear()
     assert candidate_set.candidates == (candidate,)
+    assert candidate_set.is_exhaustive is False
 
     with pytest.raises(TypeError, match="ContextCandidate"):
         CandidateSet(

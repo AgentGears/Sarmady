@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
@@ -12,10 +14,23 @@ def _require_aware(value: datetime, field_name: str) -> None:
         raise ValueError(f"{field_name} must be timezone-aware")
 
 
+def _fingerprint_time(value: datetime | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    _require_aware(value, field_name)
+    return value.astimezone(UTC).isoformat()
+
+
 class CoverageStatus(str, Enum):
     COMPLETE = "COMPLETE"
     PARTIAL = "PARTIAL"
     INSUFFICIENT = "INSUFFICIENT"
+
+
+class RequirementPlanStatus(str, Enum):
+    RESOLVED = "RESOLVED"
+    AMBIGUOUS = "AMBIGUOUS"
+    ABSTAINED = "ABSTAINED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +107,41 @@ class ContextRequest:
             _require_aware(self.valid_at, "valid_at")
 
 
+def context_request_fingerprint(request: ContextRequest) -> str:
+    """Bind a derived artifact to the complete ContextRequest semantics."""
+
+    if not isinstance(request.query, str):
+        raise TypeError("context request query must be a string")
+    payload = {
+        "contract": "ContextRequest:v1",
+        "id": str(request.id),
+        "query": request.query,
+        "token_budget": request.token_budget,
+        "latency_budget_ms": request.latency_budget_ms,
+        "goal_ref": str(request.goal_ref) if request.goal_ref else None,
+        "task_ref": str(request.task_ref) if request.task_ref else None,
+        "coverage_requirements": list(request.coverage_requirements),
+        "exact_requirements": [
+            {
+                "key": item.key,
+                "subject": item.subject,
+                "predicate": item.predicate,
+                "role": item.role,
+            }
+            for item in request.exact_requirements
+        ],
+        "known_at": _fingerprint_time(request.known_at, "known_at"),
+        "valid_at": _fingerprint_time(request.valid_at, "valid_at"),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class ContextCandidate:
     """One derived semantic-key candidate for a context request.
@@ -136,13 +186,20 @@ class ContextCandidate:
 
 @dataclass(frozen=True, slots=True)
 class CandidateSet:
-    """Immutable snapshot-bound output from a candidate generator."""
+    """Immutable snapshot-bound output from a candidate generator.
+
+    `is_exhaustive` means the generator knows that no additional candidate
+    satisfying its own matching rule was dropped from this snapshot result.
+    It does not mean the retrieval rule itself has perfect recall.
+    """
 
     request_id: UUID
     snapshot_id: str
     canonical_frontier: str
     candidates: tuple[ContextCandidate, ...]
     generator_version: str
+    request_fingerprint: str = ""
+    is_exhaustive: bool = False
 
     def __post_init__(self) -> None:
         if not self.snapshot_id:
@@ -151,6 +208,10 @@ class CandidateSet:
             raise ValueError("candidate canonical_frontier is required")
         if not self.generator_version:
             raise ValueError("candidate generator_version is required")
+        if self.request_fingerprint and not self.request_fingerprint.startswith("sha256:"):
+            raise ValueError("candidate request_fingerprint must be a sha256 fingerprint")
+        if not isinstance(self.is_exhaustive, bool):
+            raise TypeError("candidate is_exhaustive must be bool")
 
         if isinstance(self.candidates, (str, bytes)):
             raise TypeError("candidates must be an iterable of ContextCandidate")
@@ -162,7 +223,79 @@ class CandidateSet:
             ) from exc
         if any(not isinstance(candidate, ContextCandidate) for candidate in candidates):
             raise TypeError("candidates must contain only ContextCandidate values")
+        semantic_keys = [(candidate.subject, candidate.predicate) for candidate in candidates]
+        if len(semantic_keys) != len(set(semantic_keys)):
+            raise ValueError("candidate semantic keys must be unique")
         object.__setattr__(self, "candidates", candidates)
+
+
+@dataclass(frozen=True, slots=True)
+class RequirementPlan:
+    """Derived, snapshot-bound proposal for exact information obligations."""
+
+    source_request_id: UUID
+    source_request_fingerprint: str
+    candidate_snapshot_id: str
+    canonical_frontier: str
+    candidate_generator_version: str
+    planner_version: str
+    status: RequirementPlanStatus
+    exact_requirements: tuple[ExactCoverageRequirement, ...] = ()
+    selected_candidate_claim_ids: tuple[UUID, ...] = ()
+    ambiguous_candidate_claim_ids: tuple[UUID, ...] = ()
+    reasons: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.source_request_fingerprint.startswith("sha256:"):
+            raise ValueError("plan source_request_fingerprint is required")
+        if not self.candidate_snapshot_id:
+            raise ValueError("plan candidate_snapshot_id is required")
+        if not self.canonical_frontier:
+            raise ValueError("plan canonical_frontier is required")
+        if not self.candidate_generator_version:
+            raise ValueError("plan candidate_generator_version is required")
+        if not self.planner_version:
+            raise ValueError("plan planner_version is required")
+        if not isinstance(self.status, RequirementPlanStatus):
+            raise TypeError("plan status must be RequirementPlanStatus")
+
+        requirements = tuple(self.exact_requirements)
+        selected = tuple(self.selected_candidate_claim_ids)
+        ambiguous = tuple(self.ambiguous_candidate_claim_ids)
+        reasons = tuple(self.reasons)
+        if any(not isinstance(item, ExactCoverageRequirement) for item in requirements):
+            raise TypeError("plan exact_requirements must contain ExactCoverageRequirement")
+        if any(not isinstance(item, UUID) for item in selected + ambiguous):
+            raise TypeError("plan candidate claim ids must be UUID values")
+        if any(not isinstance(reason, str) or not reason for reason in reasons):
+            raise TypeError("plan reasons must contain non-empty strings")
+        if len(reasons) != len(set(reasons)):
+            raise ValueError("plan reasons must be unique")
+        requirement_keys = [item.key for item in requirements]
+        if len(requirement_keys) != len(set(requirement_keys)):
+            raise ValueError("plan requirement keys must be unique")
+
+        if self.status is RequirementPlanStatus.RESOLVED:
+            if not requirements or len(requirements) != len(selected):
+                raise ValueError(
+                    "resolved plan requires one selected candidate for each exact requirement"
+                )
+            if ambiguous:
+                raise ValueError("resolved plan cannot contain ambiguous candidates")
+        else:
+            if requirements or selected:
+                raise ValueError(
+                    "non-resolved plan cannot emit hard exact requirements"
+                )
+            if not reasons:
+                raise ValueError("non-resolved plan requires an abstention reason")
+            if self.status is RequirementPlanStatus.AMBIGUOUS and not ambiguous:
+                raise ValueError("ambiguous plan requires ambiguous candidate references")
+
+        object.__setattr__(self, "exact_requirements", requirements)
+        object.__setattr__(self, "selected_candidate_claim_ids", selected)
+        object.__setattr__(self, "ambiguous_candidate_claim_ids", ambiguous)
+        object.__setattr__(self, "reasons", reasons)
 
 
 @dataclass(frozen=True, slots=True)

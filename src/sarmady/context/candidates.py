@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping
-from typing import Any
-
 from sarmady.epistemic import ResolutionStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
 
-from .models import CandidateSet, ContextCandidate, ContextRequest
-
-
-_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+from ._lexical import lexical_tokens, semantic_tokens
+from .models import (
+    CandidateSet,
+    ContextCandidate,
+    ContextRequest,
+    context_request_fingerprint,
+)
 
 
 class LexicalCandidateGenerator:
@@ -25,7 +24,7 @@ class LexicalCandidateGenerator:
 
     __slots__ = ("store",)
 
-    version = "lexical-v0.1"
+    version = "lexical-v0.2"
 
     def __init__(self, store: SQLiteCanonicalStore):
         self.store = store
@@ -36,7 +35,8 @@ class LexicalCandidateGenerator:
         if not isinstance(request.query, str):
             raise TypeError("context request query must be a string")
 
-        query_terms = tuple(sorted(_tokenize(request.query)))
+        request_fingerprint = context_request_fingerprint(request)
+        query_terms = tuple(sorted(lexical_tokens(request.query)))
         if not query_terms:
             raise ValueError("context request query must contain a lexical term")
         query_term_set = set(query_terms)
@@ -63,17 +63,17 @@ class LexicalCandidateGenerator:
                 if not snapshot.is_active_memory_target("Claim", operative.id):
                     continue
 
-                value_terms = set(_semantic_tokens(operative.value))
+                value_terms = set(semantic_tokens(operative.value))
                 for competing_id in state.competing_claim_ids:
                     competing = snapshot.claim(competing_id)
                     if competing is None:
                         continue
                     if not snapshot.is_active_memory_target("Claim", competing.id):
                         continue
-                    value_terms.update(_semantic_tokens(competing.value))
+                    value_terms.update(semantic_tokens(competing.value))
 
-                subject_terms = _tokenize(subject)
-                predicate_terms = _tokenize(predicate)
+                subject_terms = lexical_tokens(subject)
+                predicate_terms = lexical_tokens(predicate)
                 subject_matches = query_term_set & subject_terms
                 predicate_matches = query_term_set & predicate_terms
                 value_matches = query_term_set & value_terms
@@ -83,7 +83,7 @@ class LexicalCandidateGenerator:
                 if not matched_terms:
                     continue
 
-                # These literals are part of lexical-v0.1. Keeping them inside
+                # These literals are part of lexical-v0.2. Keeping them inside
                 # the implementation prevents callers from mutating a public
                 # scoring profile while retaining the same generator version.
                 rank_score = float(
@@ -110,6 +110,7 @@ class LexicalCandidateGenerator:
                 )
             )
             selected = tuple(candidates[:limit])
+            is_exhaustive = len(candidates) <= limit
 
         return CandidateSet(
             request_id=request.id,
@@ -117,31 +118,6 @@ class LexicalCandidateGenerator:
             canonical_frontier=str(frontier),
             candidates=selected,
             generator_version=self.version,
+            request_fingerprint=request_fingerprint,
+            is_exhaustive=is_exhaustive,
         )
-
-
-def _tokenize(text: str) -> set[str]:
-    return {match.group(0).casefold() for match in _TOKEN_RE.finditer(text)}
-
-
-def _semantic_tokens(value: Any) -> set[str]:
-    if value is None:
-        return set()
-    if isinstance(value, str):
-        return _tokenize(value)
-    if isinstance(value, bool):
-        return {"true" if value else "false"}
-    if isinstance(value, (int, float)):
-        return _tokenize(str(value))
-    if isinstance(value, Mapping):
-        tokens: set[str] = set()
-        for key, item in value.items():
-            tokens.update(_tokenize(key))
-            tokens.update(_semantic_tokens(item))
-        return tokens
-    if isinstance(value, tuple):
-        tokens: set[str] = set()
-        for item in value:
-            tokens.update(_semantic_tokens(item))
-        return tokens
-    raise TypeError("candidate generator received non-canonical semantic value")
