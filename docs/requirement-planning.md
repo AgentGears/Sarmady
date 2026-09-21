@@ -94,6 +94,8 @@ If only one subject remains for the resolved predicate in an exhaustive `lexical
 
 If several subjects remain, the planner considers only **discriminating subject tokens**: tokens appearing in one candidate subject but not the other subjects in the same predicate pool. A query such as `alpha machine memory` may therefore resolve `machine:alpha`, while `machine memory` remains ambiguous between `machine:alpha` and `machine:beta`.
 
+Predicate evidence is not allowed to double as subject-identity evidence. Tokens belonging to the resolved predicate are removed before subject qualification, so one lexical observation cannot manufacture certainty twice. For example, with subjects `machine:memory` and `machine:primary` that both expose predicate `memory_gb`, the query `How much memory?` remains ambiguous rather than selecting `machine:memory` merely because `memory` appears in both the predicate and that subject.
+
 A tied or absent discriminating subject produces `AMBIGUOUS` with the competing candidate claim references.
 
 ### Rank scores
