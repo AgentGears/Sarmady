@@ -109,7 +109,11 @@ class ControlledRequirementPlanner:
             for candidate in predicate_candidates
             if candidate.predicate == predicate
         )
-        selected = self._resolve_subject(query_terms, pool)
+        # Predicate evidence cannot simultaneously prove subject identity. If a
+        # lexical token appears in both the resolved predicate and one subject,
+        # counting it again would manufacture certainty from one observation.
+        subject_evidence_terms = query_terms - lexical_tokens(predicate)
+        selected = self._resolve_subject(subject_evidence_terms, pool)
         if selected is None:
             return RequirementPlan(
                 **common,
