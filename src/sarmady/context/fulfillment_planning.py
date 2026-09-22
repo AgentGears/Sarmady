@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sarmady.cognition import ContextNeedDecisionKind
 
 from .candidates import LexicalCandidateGenerator
+from .models import RequirementPlanStatus
 from .planning import ControlledRequirementPlanner
 from .planning_receipt import ContextNeedPlanningReceipt, ContextNeedPlanningResult
 
@@ -60,7 +61,7 @@ class ContextNeedPlanningCoordinator:
         plan = planner.plan(source, candidates)
 
         derived_request = None
-        if plan.status.value == "RESOLVED":
+        if plan.status is RequirementPlanStatus.RESOLVED:
             derived_request = planner.derive_request(
                 source,
                 plan,
