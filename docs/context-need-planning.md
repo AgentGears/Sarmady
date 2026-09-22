@@ -12,7 +12,7 @@ ContextNeedProposal
     -> fresh child ContextRequest
 ```
 
-That child request is durable, but its descriptive query and coverage labels are not yet exact semantic obligations. Running candidate discovery and requirement planning only in memory creates a recovery gap: after process loss there is no durable record of which accepted need was planned, which candidate snapshot/frontier informed the plan, whether the planner resolved, preserved ambiguity, or abstained, or which new exact request was derived.
+That child request is durable, but its descriptive query and coverage labels are not yet exact semantic obligations. Running candidate discovery and requirement planning only in memory creates a recovery gap: after process loss there is no durable record of which accepted need was planned, which candidate snapshot/frontier and retrieval bound informed the plan, whether the planner resolved, preserved ambiguity, or abstained, or which new exact request was derived.
 
 The minimum next mechanism is therefore:
 
@@ -65,6 +65,7 @@ For the current versions, planning is deliberately narrow:
 
 - candidate generator: `lexical-v0.2`;
 - planner: `controlled-requirement-v0.1`;
+- an explicit positive candidate limit, defaulting to 20;
 - one source request without pre-existing exact requirements;
 - one exact obligation at most when `RESOLVED`;
 - explicit `AMBIGUOUS` and `ABSTAINED` outcomes remain non-executable as exact requests.
@@ -80,6 +81,7 @@ A `RESOLVED` outcome derives a fresh `ContextRequest` ID. Query, token/latency b
 - planning time;
 - the source child request ID and request fingerprint through the embedded plan;
 - candidate snapshot ID and canonical frontier;
+- candidate limit;
 - candidate-generator and planner versions;
 - `RESOLVED`, `AMBIGUOUS`, or `ABSTAINED`;
 - exact requirements and selected candidate claim references when resolved;
@@ -87,7 +89,9 @@ A `RESOLVED` outcome derives a fresh `ContextRequest` ID. Query, token/latency b
 - planner reasons;
 - optional derived exact-request ID.
 
-The store reconstructs the receipt and plan through public invariants before persistence. It re-establishes the accepted decision and source-child lineage, verifies the source request fingerprint, validates the version-specific v0.1 planner output grammar, validates referenced candidate claims against the recorded frontier, and persists the receipt together with any derived exact request in one transaction.
+The candidate limit is part of provenance because changing the limit can change whether `lexical-v0.2` is exhaustive and therefore whether `controlled-requirement-v0.1` may resolve or must abstain.
+
+The store reconstructs the receipt and plan through public invariants before persistence. It re-establishes the accepted decision and source-child lineage, verifies the source request fingerprint, validates canonical snapshot/frontier spelling and the version-specific v0.1 planner output grammar, validates referenced candidate claims against the recorded frontier, and persists the receipt together with any derived exact request in one transaction.
 
 The receipt is not a proof that an arbitrary external planner is trustworthy. It is the durable record of Sarmady's current host-controlled planning boundary and its validated provenance.
 
@@ -122,9 +126,11 @@ This matters because cognitive-request admission and model-invocation start alre
 
 The same full freshness contract is used when accepting a later model-produced context need. A new accepted child cannot be authorized from a projection whose upstream planning proof has expired.
 
-## Atomicity and recovery
+## Atomicity, retry identity, and recovery
 
 For a resolved plan, the derived exact request and planning receipt commit atomically. If either write fails, neither survives. `AMBIGUOUS` and `ABSTAINED` receipts persist without creating a derived request.
+
+A planning attempt is identified by accepted decision, candidate frontier, candidate limit, candidate-generator version, and planner version. Repeating the same attempt is rejected explicitly rather than silently creating another exact request. A caller recovering from an uncertain response can reload the already persisted receipt. Replanning is allowed when the frontier changes or when the host deliberately changes the candidate limit.
 
 Receipts and their derived requests survive close/reopen. SQLite schema v8 adds `context_need_planning_receipts`; existing v7 stores upgrade in place without rewriting existing context-need decisions.
 
