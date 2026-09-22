@@ -45,9 +45,10 @@ class _ContextNeedLineage:
 class ContextNeedCoordinator:
     """Turn a persisted model proposal into an explicit host decision.
 
-    Acceptance creates exactly one durable child ``ContextRequest`` with a
-    bounded budget transfer. It does not retrieve candidates, plan exact
-    requirements, compile a projection, mutate memory, or continue cognition.
+    Acceptance creates exactly one durable child ``ContextRequest`` with
+    non-amplifying per-child resource bounds. It does not implement cumulative
+    remaining-budget accounting, retrieve candidates, plan exact requirements,
+    compile a projection, mutate memory, or continue cognition.
     """
 
     def __init__(
