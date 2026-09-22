@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, Callable, Mapping, Protocol
 from uuid import UUID, uuid4
 
 from sarmady.cognition import (
+    CONTEXT_NEED_ARTIFACT_KIND,
     CognitiveRequest,
+    ContextNeedProposal,
     GeneratedArtifact,
     ModelInvocation,
     ReasoningPolicy,
+    deserialize_context_need_proposal,
+    serialize_context_need_proposal,
 )
 from sarmady.context import ContextProjection, CoverageStatus
 from sarmady.storage.sqlite import SQLiteCanonicalStore
@@ -78,6 +83,51 @@ class ModelAdapter(Protocol):
     def invoke(self, model_input: ModelInput) -> ModelResponse: ...
 
 
+class StepModelAdapter(Protocol):
+    """Adapter that may either complete or propose an additional context need."""
+
+    @property
+    def binding_id(self) -> str: ...
+
+    def invoke(
+        self,
+        model_input: ModelInput,
+    ) -> ModelResponse | ContextNeedProposal: ...
+
+
+class CognitiveStepStatus(str, Enum):
+    COMPLETED = "COMPLETED"
+    NEEDS_CONTEXT = "NEEDS_CONTEXT"
+
+
+@dataclass(frozen=True, slots=True)
+class CognitiveStepResult:
+    status: CognitiveStepStatus
+    artifact: GeneratedArtifact
+    context_need: ContextNeedProposal | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, CognitiveStepStatus):
+            raise TypeError("cognitive step status must be CognitiveStepStatus")
+        if not isinstance(self.artifact, GeneratedArtifact):
+            raise TypeError("cognitive step artifact must be GeneratedArtifact")
+        if self.status is CognitiveStepStatus.COMPLETED:
+            if self.context_need is not None:
+                raise ValueError("completed cognitive step cannot carry a context need")
+        elif self.context_need is None:
+            raise ValueError("context-needing cognitive step requires a ContextNeedProposal")
+
+
+def context_need_from_artifact(artifact: GeneratedArtifact) -> ContextNeedProposal:
+    """Rehydrate a typed context need from its durable generated artifact."""
+
+    if not isinstance(artifact, GeneratedArtifact):
+        raise TypeError("artifact must be GeneratedArtifact")
+    if artifact.artifact_kind != CONTEXT_NEED_ARTIFACT_KIND:
+        raise ValueError("generated artifact is not a context-need artifact")
+    return deserialize_context_need_proposal(artifact.content)
+
+
 class CognitiveRuntime:
     """Provider-neutral cognitive execution over persisted semantic context."""
 
@@ -100,7 +150,102 @@ class CognitiveRuntime:
         reasoning_policy: ReasoningPolicy | None = None,
         reasoning_policy_id: str | None = None,
     ) -> GeneratedArtifact:
-        if not adapter.binding_id.strip():
+        """Run one terminal model invocation.
+
+        This preserves the original M1 contract: adapters used through
+        ``invoke`` must return a terminal ``ModelResponse``.
+        """
+
+        invocation, model_input = self._begin_invocation(
+            agent_id=agent_id,
+            context_projection_id=context_projection_id,
+            operation=operation,
+            binding_id=adapter.binding_id,
+            reasoning_policy=reasoning_policy,
+            reasoning_policy_id=reasoning_policy_id,
+        )
+
+        try:
+            response = adapter.invoke(model_input)
+            if not isinstance(response, ModelResponse):
+                raise TypeError("model adapter must return ModelResponse")
+            return self._complete_artifact(
+                invocation,
+                artifact_kind=response.artifact_kind,
+                content=response.content,
+            )
+        except Exception as exc:
+            self._fail_open_invocation(invocation, exc)
+            raise
+
+    def invoke_step(
+        self,
+        *,
+        agent_id: UUID,
+        context_projection_id: UUID,
+        operation: str,
+        adapter: StepModelAdapter,
+        reasoning_policy: ReasoningPolicy | None = None,
+        reasoning_policy_id: str | None = None,
+    ) -> CognitiveStepResult:
+        """Run one cognitive step without granting the model context authority.
+
+        A step may complete normally or emit a typed ``ContextNeedProposal``.
+        The proposal is durably recorded as a non-authoritative
+        ``GeneratedArtifact``. This method does not create a ``ContextRequest``,
+        retrieve additional state, allocate a new budget, or continue a loop.
+        """
+
+        invocation, model_input = self._begin_invocation(
+            agent_id=agent_id,
+            context_projection_id=context_projection_id,
+            operation=operation,
+            binding_id=adapter.binding_id,
+            reasoning_policy=reasoning_policy,
+            reasoning_policy_id=reasoning_policy_id,
+        )
+
+        try:
+            response = adapter.invoke(model_input)
+            if isinstance(response, ModelResponse):
+                artifact = self._complete_artifact(
+                    invocation,
+                    artifact_kind=response.artifact_kind,
+                    content=response.content,
+                )
+                return CognitiveStepResult(
+                    status=CognitiveStepStatus.COMPLETED,
+                    artifact=artifact,
+                )
+            if isinstance(response, ContextNeedProposal):
+                artifact = self._complete_artifact(
+                    invocation,
+                    artifact_kind=CONTEXT_NEED_ARTIFACT_KIND,
+                    content=serialize_context_need_proposal(response),
+                )
+                return CognitiveStepResult(
+                    status=CognitiveStepStatus.NEEDS_CONTEXT,
+                    artifact=artifact,
+                    context_need=response,
+                )
+            raise TypeError(
+                "step model adapter must return ModelResponse or ContextNeedProposal"
+            )
+        except Exception as exc:
+            self._fail_open_invocation(invocation, exc)
+            raise
+
+    def _begin_invocation(
+        self,
+        *,
+        agent_id: UUID,
+        context_projection_id: UUID,
+        operation: str,
+        binding_id: str,
+        reasoning_policy: ReasoningPolicy | None,
+        reasoning_policy_id: str | None,
+    ) -> tuple[ModelInvocation, ModelInput]:
+        if not binding_id.strip():
             raise ValueError("adapter binding_id is required")
         if (
             reasoning_policy is not None
@@ -136,44 +281,44 @@ class CognitiveRuntime:
             raise RuntimeError("persisted context projection disappeared")
         model_input = self._materialize_input(request, projection)
 
-        started_at = self.clock()
         invocation = ModelInvocation(
             id=uuid4(),
             cognitive_request_id=request.id,
-            model_binding=adapter.binding_id,
-            started_at=started_at,
+            model_binding=binding_id,
+            started_at=self.clock(),
         )
         self.store.start_model_invocation(invocation)
+        return invocation, model_input
 
-        try:
-            response = adapter.invoke(model_input)
-            if not isinstance(response, ModelResponse):
-                raise TypeError("model adapter must return ModelResponse")
+    def _complete_artifact(
+        self,
+        invocation: ModelInvocation,
+        *,
+        artifact_kind: str,
+        content: str,
+    ) -> GeneratedArtifact:
+        artifact = GeneratedArtifact(
+            id=uuid4(),
+            invocation_id=invocation.id,
+            artifact_kind=artifact_kind,
+            content=content,
+            created_at=self.clock(),
+        )
+        self.store.complete_model_invocation(
+            invocation.id,
+            artifact,
+            completed_at=self.clock(),
+        )
+        return artifact
 
-            created_at = self.clock()
-            artifact = GeneratedArtifact(
-                id=uuid4(),
-                invocation_id=invocation.id,
-                artifact_kind=response.artifact_kind,
-                content=response.content,
-                created_at=created_at,
-            )
-            completed_at = self.clock()
-            self.store.complete_model_invocation(
+    def _fail_open_invocation(self, invocation: ModelInvocation, exc: Exception) -> None:
+        current = self.store.invocation(invocation.id)
+        if current is not None and current.completed_at is None:
+            self.store.fail_model_invocation(
                 invocation.id,
-                artifact,
-                completed_at=completed_at,
+                completed_at=self.clock(),
+                error_code=f"adapter-error:{type(exc).__name__}",
             )
-            return artifact
-        except Exception as exc:
-            current = self.store.invocation(invocation.id)
-            if current is not None and current.completed_at is None:
-                self.store.fail_model_invocation(
-                    invocation.id,
-                    completed_at=self.clock(),
-                    error_code=f"adapter-error:{type(exc).__name__}",
-                )
-            raise
 
     def _materialize_input(
         self,

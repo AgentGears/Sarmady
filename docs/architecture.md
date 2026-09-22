@@ -51,7 +51,7 @@ EffectEvidence
 
 ## Logical planes
 
-The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** discovers candidate semantic keys, plans explicit information obligations, and compiles a bounded working set from canonical and materialized state. Candidate discovery is derived relevance computation, not semantic admission and not proof of sufficiency. Requirement planning is a second derived boundary: it may resolve, preserve ambiguity, or abstain, and rank preference alone cannot create a hard semantic constraint. Coverage remains the independent sufficiency contract: a resolved requirement still must be re-resolved and supported inside the compiler's pinned snapshot. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
+The **semantic kernel** owns durable identity, epistemic admission boundaries, authority, commitments, action/effect semantics, and presentation truth. The **memory system** controls admission into long-term recall, lifecycle, consolidation, and usage telemetry. The **context system** discovers candidate semantic keys, plans explicit information obligations, and compiles a bounded working set from canonical and materialized state. Candidate discovery is derived relevance computation, not semantic admission and not proof of sufficiency. Requirement planning is a second derived boundary: it may resolve, preserve ambiguity, or abstain, and rank preference alone cannot create a hard semantic constraint. Coverage remains the independent sufficiency contract: a resolved requirement still must be re-resolved and supported inside the compiler's pinned snapshot. The **cognitive runtime** invokes reasoning, decision, generation, and verification models. A cognitive model may emit a typed `ContextNeedProposal`, but that proposal remains non-authoritative generated output until a separate host/context/executive boundary decides whether and how to fulfill it. The **executive** selects what computation or work happens next. The **runtime adapters** connect models, tools, providers, and user surfaces.
 
 These are logical responsibilities, not mandatory microservices. A deployment may combine them in one process while preserving their contracts.
 
@@ -81,6 +81,8 @@ A `CandidateSet` can be used for hard-constraint planning only when it is bound 
 
 `RequirementPlan` makes uncertainty explicit. Non-resolved plans are structurally unable to carry exact requirements. A resolved plan may derive a new `ContextRequest` with exact obligations, but it cannot mutate or reuse the source request ID. The derived request is then compiled normally, so the coverage engine—not the planner—determines whether support is complete, partial, or insufficient.
 
+A `ContextNeedProposal` sits on the other side of the projection boundary: it is a model-produced request for additional information, not a `ContextRequest`. Persisting it as generated output preserves the need across failure without allowing model output to allocate budget, select exact addresses, or initiate retrieval by assertion.
+
 ## Snapshot discipline
 
 A context compiler must not read a frontier and then accidentally mix in later state. SQLite M1 uses an explicit WAL read transaction: the first frontier read pins the database snapshot, all claim/evidence/memory reads occur inside that snapshot, and only then is the immutable projection emitted.
@@ -99,7 +101,9 @@ Domain contracts must not import storage/services. Domain packages export semant
 
 The kernel must not know about system prompts, temperatures, tokenizers, OpenAI message arrays, or specific model names. A persisted `Agent` is independent of every model binding. A `ReasoningPolicy` is likewise provider-neutral: it expresses versioned stages and reasoning obligations rather than a provider prompt. The cognitive runtime reloads a durable `ContextProjection`, materializes a structured semantic `ModelInput` containing any selected policy and its fingerprint, and gives only that input to a provider-neutral `ModelAdapter`. The adapter has no canonical-store handle. Each attempt is durably recorded as a `ModelInvocation`; returned `GeneratedArtifact` objects are durable but remain non-authoritative until a governed adoption step.
 
-Freshness is fenced twice: when the cognitive request is admitted and again under the write lock immediately before invocation start. A later state change may make the historical projection stale while a model call is already running; that does not rewrite the invocation snapshot, and any consequential adoption must revalidate current state separately.
+The opt-in step interface extends that boundary without handing the adapter a store handle. `StepModelAdapter` may return either a terminal `ModelResponse` or a typed `ContextNeedProposal`. A valid proposal is serialized into a versioned `GeneratedArtifact`; no follow-up `ContextRequest`, retrieval, memory mutation, or second invocation is created automatically.
+
+Freshness is fenced twice: when the cognitive request is admitted and again under the write lock immediately before invocation start. A later state change may make the historical projection stale while a model call is already running; that does not rewrite the invocation snapshot, and any consequential adoption or future continuation must revalidate current state separately.
 
 ## Storage independence
 

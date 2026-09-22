@@ -30,9 +30,10 @@ The current executable slice now proves:
 - deterministic snapshot-bound lexical candidate discovery that preserves relevance ≠ sufficiency and retrieval ≠ memory strengthening;
 - request-bound/exhaustiveness-aware candidate receipts so truncated retrieval cannot masquerade as uniqueness;
 - controlled single-intent requirement planning with explicit ambiguity and abstention instead of rank-based over-resolution;
-- new-ID derivation of exact-requirement requests followed by independent coverage compilation.
+- new-ID derivation of exact-requirement requests followed by independent coverage compilation;
+- typed model-produced `ContextNeedProposal` outcomes that are durably recorded without becoming executable `ContextRequest` authority.
 
-Semantic embedding/vector retrieval, general entity resolution/extraction, multi-intent/general natural-language requirement planning, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
+Semantic embedding/vector retrieval, general entity resolution/extraction, multi-intent/general natural-language requirement planning, controlled fulfillment of context-need proposals, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
 
 ## Source lineage
 
@@ -70,4 +71,4 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, `docs/context-retrieval.md`, `docs/requirement-planning.md`, and `docs/code-survival.md` before adding runtime behavior.
+See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, `docs/context-retrieval.md`, `docs/requirement-planning.md`, `docs/context-iteration.md`, and `docs/code-survival.md` before adding runtime behavior.

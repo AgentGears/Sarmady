@@ -55,6 +55,8 @@ A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable p
 
 `CognitiveRequest` is a durable operational request for computation by one persistent `Agent` over one persisted context projection. `ReasoningPolicy` is an immutable, versioned semantic control contract with ordered stages, explicit requirements, source lineage, and a deterministic fingerprint. A policy is not a provider prompt. `ModelInvocation` records a particular compute attempt and its replaceable model binding. `GeneratedArtifact` is durable model-produced, non-authoritative output. These cognitive records do not advance epistemic truth merely by existing. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
 
+`ContextNeedProposal` is a typed model-produced request for more information. It is persisted through a versioned `GeneratedArtifact` payload rather than as a new canonical truth object. A context-need proposal is explicitly not a `ContextRequest`: it carries no retrieval authority, exact semantic address, resource allocation, temporal authority, or permission to continue computation. A later host/context/executive boundary must decide whether and how to fulfill it.
+
 ## Executive state
 
 `Goal` describes a desired state. `Task` is a bounded unit of work. `Commitment` is an accepted obligation. `WorkRun` is one execution instance of a task. `Trigger` is a condition that can make work eligible.

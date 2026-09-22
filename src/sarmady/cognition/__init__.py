@@ -1,4 +1,15 @@
-from .models import ChoiceCandidate, ChoiceResult, CognitiveRequest, DecisionRecord, GeneratedArtifact, ModelInvocation
+from .models import (
+    CONTEXT_NEED_ARTIFACT_KIND,
+    ChoiceCandidate,
+    ChoiceResult,
+    CognitiveRequest,
+    ContextNeedProposal,
+    DecisionRecord,
+    GeneratedArtifact,
+    ModelInvocation,
+    deserialize_context_need_proposal,
+    serialize_context_need_proposal,
+)
 from .reasoning import (
     BUILTIN_REASONING_POLICIES,
     COMPACT_V1,
@@ -13,6 +24,10 @@ __all__ = [
     "CognitiveRequest",
     "ModelInvocation",
     "GeneratedArtifact",
+    "ContextNeedProposal",
+    "CONTEXT_NEED_ARTIFACT_KIND",
+    "serialize_context_need_proposal",
+    "deserialize_context_need_proposal",
     "ChoiceCandidate",
     "ChoiceResult",
     "DecisionRecord",
