@@ -88,6 +88,7 @@ def _seed_resolved_plan(store: SQLiteCanonicalStore):
         clock=lambda: T0 + timedelta(minutes=3),
     ).plan_accepted(context_need_decision_id=accepted.decision.id)
     assert planned.receipt.plan.status is RequirementPlanStatus.RESOLVED
+    assert planned.receipt.candidate_limit == 20
     assert planned.derived_request is not None
     return accepted, planned
 
@@ -184,3 +185,50 @@ def test_store_rejects_resolved_shape_impossible_for_controlled_planner_v01(tmp_
                 derived_request=forged_request,
             )
         assert store.context_request(forged_request.id) is None
+
+
+def test_same_frontier_and_planning_configuration_is_not_silently_duplicated(tmp_path) -> None:
+    with SQLiteCanonicalStore(tmp_path / "sarmady.db") as store:
+        accepted, first = _seed_resolved_plan(store)
+        request_count = store.db.execute(
+            "SELECT COUNT(*) FROM context_requests"
+        ).fetchone()[0]
+        receipt_count = store.db.execute(
+            "SELECT COUNT(*) FROM context_need_planning_receipts"
+        ).fetchone()[0]
+
+        with pytest.raises(ValueError, match="planning attempt already recorded"):
+            ContextNeedPlanningCoordinator(
+                store,
+                clock=lambda: T0 + timedelta(minutes=4),
+            ).plan_accepted(context_need_decision_id=accepted.decision.id)
+
+        assert store.db.execute(
+            "SELECT COUNT(*) FROM context_requests"
+        ).fetchone()[0] == request_count
+        assert store.db.execute(
+            "SELECT COUNT(*) FROM context_need_planning_receipts"
+        ).fetchone()[0] == receipt_count
+        restored = store.context_need_planning_receipt(first.receipt.id)
+        assert restored == first.receipt
+        assert restored.candidate_limit == 20
+
+
+def test_different_candidate_limit_is_distinct_planning_configuration(tmp_path) -> None:
+    with SQLiteCanonicalStore(tmp_path / "sarmady.db") as store:
+        accepted, first = _seed_resolved_plan(store)
+        second = ContextNeedPlanningCoordinator(
+            store,
+            clock=lambda: T0 + timedelta(minutes=4),
+        ).plan_accepted(
+            context_need_decision_id=accepted.decision.id,
+            candidate_limit=21,
+        )
+
+        assert second.receipt.plan.canonical_frontier == first.receipt.plan.canonical_frontier
+        assert second.receipt.candidate_limit == 21
+        assert second.receipt.id != first.receipt.id
+        assert second.derived_request is not None
+        assert second.derived_request.id != first.derived_request.id
+        receipts = store.context_need_planning_receipts_for_decision(accepted.decision.id)
+        assert {receipt.candidate_limit for receipt in receipts} == {20, 21}
