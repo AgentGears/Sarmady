@@ -246,6 +246,7 @@ def initialize_schema(db: sqlite3.Connection) -> None:
             source_request_fingerprint TEXT NOT NULL,
             candidate_snapshot_id TEXT NOT NULL,
             candidate_frontier INTEGER NOT NULL CHECK(candidate_frontier >= 0),
+            candidate_limit INTEGER NOT NULL CHECK(candidate_limit > 0),
             candidate_generator_version TEXT NOT NULL,
             planner_version TEXT NOT NULL,
             status TEXT NOT NULL
@@ -265,6 +266,14 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_planning_receipts_derived_request
             ON context_need_planning_receipts(derived_context_request_id)
             WHERE derived_context_request_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_planning_receipts_attempt
+            ON context_need_planning_receipts(
+                context_need_decision_id,
+                candidate_frontier,
+                candidate_limit,
+                candidate_generator_version,
+                planner_version
+            );
         """
     )
     _backfill_legacy_memory_created_events(db)
