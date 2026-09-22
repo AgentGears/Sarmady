@@ -20,6 +20,8 @@ CoverageContextCompiler actual support and sufficiency
 
 A planner is not allowed to turn a retrieval score directly into a hard semantic constraint.
 
+The core planner remains a pure derived-computation component. A later accepted-context-need boundary may persist its outcome inside a `ContextNeedPlanningReceipt`; that operational persistence does not make the plan canonical epistemic truth. See `docs/context-need-planning.md`.
+
 ## Source lineage
 
 This slice carries forward one result from `ElephantRock/Durable-Infinite-Context` v0.4: a deterministic non-oracle planner can use user-visible question text plus memory-derived profiles to resolve controlled identity/predicate/time cases, while preserving irreducible identity ambiguity rather than manufacturing a hard constraint.
@@ -32,7 +34,7 @@ Sarmady narrows the first executable port further. It does not yet implement the
 
 ## RequirementPlan contract
 
-`RequirementPlan` is immutable, derived, and ephemeral. It carries:
+`RequirementPlan` is immutable and derived. As a standalone planner return value it is ephemeral; in the accepted-context-need path the same immutable value may be embedded in a durable operational planning receipt. It carries:
 
 - source `ContextRequest` ID;
 - fingerprint of the exact source-request semantics;
@@ -108,11 +110,11 @@ A `RequirementPlan` interprets the source request against the exact candidate sn
 
 > the controlled planner could emit this obligation from the complete `lexical-v0.2` candidate universe visible at that candidate snapshot.
 
-It does **not** mean that identity remains uniquely resolvable at every later semantic frontier. Another subject or predicate match may be admitted after candidate generation. Planning does not reopen the store and re-run candidate discovery during `derive_request()`.
+It does **not** mean that identity remains uniquely resolvable at every later semantic frontier. Another subject or predicate match may be admitted after candidate generation. The pure planner itself does not reopen the store and re-run candidate discovery during `derive_request()`.
 
-The subsequent `CoverageContextCompiler` opens a fresh pinned snapshot and independently re-resolves the selected semantic key, so it verifies current/historical support for that exact obligation. It does not repeat natural-language identity planning and therefore cannot detect that a newly admitted alternative subject would have changed the earlier planner outcome.
+The subsequent `CoverageContextCompiler` opens a fresh pinned snapshot and independently re-resolves the selected semantic key, so it verifies current/historical support for that exact obligation. It does not repeat natural-language identity planning and by itself cannot detect that a newly admitted alternative subject would have changed the earlier planner outcome.
 
-This distinction is deliberate in v0.1: planning is snapshot-bound interpretation, not a current-frontier uniqueness fence. A future executive that requires current-frontier planning freshness must re-run candidate generation/planning or introduce a durable/fenced planning receipt rather than treating an old `RESOLVED` plan as timeless authorization.
+For direct standalone use, planning remains snapshot-bound interpretation. The accepted-context-need path adds the stricter control needed when a plan becomes durable operational intent: `ContextNeedPlanningReceipt` persistence fails closed if relevant semantic/memory state changed after the candidate frontier; projection registration rechecks that planning receipt; and later planning staleness propagates into projection freshness. This is an orchestration fence around the planner, not a change to `RequirementPlan`'s meaning.
 
 ## Deriving an exact request
 
@@ -130,15 +132,15 @@ This new-ID rule is required by Sarmady's durable request semantics: once a `Con
 
 The derived request may then be passed to `CoverageContextCompiler`, which independently re-resolves the semantic key and determines actual `COMPLETE` / `PARTIAL` / `INSUFFICIENT` coverage. A resolved plan is therefore **not** a claim that coverage exists.
 
+In the accepted-context-need boundary, a resolved plan's fresh exact request is persisted atomically with the planning receipt. That persistence still does not compile a projection or continue cognition.
+
 ## Trust and write semantics
 
-Planning performs no canonical writes and does not advance the epistemic frontier. It does not:
+`ControlledRequirementPlanner.plan()` itself performs no canonical writes and does not advance the epistemic frontier. It does not:
 
 - admit claims;
 - strengthen memory;
 - persist candidate sets;
-- persist requirement plans;
-- persist the source request;
 - mark coverage complete;
 - invoke a model or provider.
 
@@ -146,7 +148,7 @@ The request fingerprint is a deterministic **integrity binding**, not an authent
 
 `ControlledRequirementPlanner` v0.1 assumes its `CandidateSet` is produced by the trusted runtime retrieval path. The explicit generator-version check prevents accidental semantic substitution but does not cryptographically authenticate provenance. This is acceptable for the current in-process derived-computation boundary because callers already able to construct arbitrary exact `ContextRequest` values are not gaining a new semantic-admission authority through this planner.
 
-Only a later context-projection registration persists the derived `ContextRequest` as part of its immutable projection lineage. The current schema does not persist the source `RequirementPlan` or parent request/candidate receipt, so durable audit/replay of the automatic planning decision is not yet provided.
+`ContextNeedPlanningCoordinator` is a separate trusted host/context boundary. It runs the generator and planner, then asks the store to persist a receipt. The store revalidates accepted-decision/source-request lineage, candidate frontier and generator/planner versions, the concrete v0.1 output grammar, referenced candidate claims, candidate-limit configuration, and freshness before it persists operational state. The receipt is still not an authenticity primitive for arbitrary external planning code.
 
 ## Deliberate limitations
 
@@ -161,8 +163,8 @@ Only a later context-projection registration persists the derived `ContextReques
 - temporal phrase parsing beyond the temporal selectors already present on `ContextRequest`;
 - LLM-based planning;
 - semantic/vector candidate generation;
-- adaptive retrieval expansion;
-- current-frontier replanning/freshness fencing;
-- durable plan receipts or persisted source-plan lineage.
+- adaptive retrieval expansion.
+
+The pure planner does not itself provide durable receipts or current-frontier orchestration fences; those are supplied only by the explicit accepted-context-need planning boundary. Neither layer automatically compiles a projection or continues model execution.
 
 The next planner may be more capable, but it must preserve the same hard rule: uncertainty is an explicit output, and hard semantic constraints require evidence stronger than rank preference.
