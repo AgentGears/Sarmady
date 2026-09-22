@@ -18,7 +18,8 @@ class ContextNeedPlanningCoordinator:
     The coordinator performs snapshot-bound candidate discovery followed by the
     conservative controlled requirement planner. The durable store revalidates
     the accepted-decision lineage, source request semantics, planning frontier,
-    and any derived exact request under its write lock before persistence.
+    candidate limit, and any derived exact request under its write lock before
+    persistence.
     """
 
     def __init__(
@@ -77,6 +78,7 @@ class ContextNeedPlanningCoordinator:
             context_need_decision_id=context_need_decision_id,
             planned_at=self.clock(),
             plan=plan,
+            candidate_limit=candidate_limit,
             derived_context_request_id=(
                 derived_request.id if derived_request is not None else None
             ),
