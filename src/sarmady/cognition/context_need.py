@@ -11,6 +11,11 @@ def _require_aware(value: datetime, field_name: str) -> None:
         raise ValueError(f"{field_name} must be timezone-aware")
 
 
+def _require_uuid(value: UUID, field_name: str) -> None:
+    if not isinstance(value, UUID):
+        raise TypeError(f"{field_name} must be UUID")
+
+
 class ContextNeedDecisionKind(str, Enum):
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
@@ -38,6 +43,32 @@ class ContextNeedDecision:
     child_context_request_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        _require_uuid(self.id, "context need decision id")
+        _require_uuid(
+            self.context_need_artifact_id,
+            "context need decision artifact id",
+        )
+        _require_uuid(
+            self.parent_invocation_id,
+            "context need decision parent invocation id",
+        )
+        _require_uuid(
+            self.parent_cognitive_request_id,
+            "context need decision parent cognitive request id",
+        )
+        _require_uuid(
+            self.parent_context_projection_id,
+            "context need decision parent context projection id",
+        )
+        _require_uuid(
+            self.parent_context_request_id,
+            "context need decision parent context request id",
+        )
+        if self.child_context_request_id is not None:
+            _require_uuid(
+                self.child_context_request_id,
+                "context need decision child context request id",
+            )
         if not isinstance(self.decision, ContextNeedDecisionKind):
             raise TypeError("context need decision must be ContextNeedDecisionKind")
         _require_aware(self.decided_at, "decided_at")
