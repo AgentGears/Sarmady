@@ -6,6 +6,8 @@ Sarmady separates three classes of state:
 - **Derived/materialized state** — reconstructible views such as current claim heads, memory lifecycle state, memory-health snapshots, and context-projection staleness.
 - **Ephemeral compute** — prompts, retrieval candidates, KV caches, logits, scratch reasoning, and provider-specific request structures.
 
+Durable operational records such as context requests, cognitive requests, model invocations, generated artifacts, and context-need decisions are persisted for control/recovery/audit without becoming epistemic truth merely by existing.
+
 ## Identity
 
 `Person` is a human identity. `Agent` is a persistent artificial identity. `Principal` is an identity that can hold or exercise authority. `Relationship` connects durable identities. `Binding` maps an identity to an external account, surface, or provider endpoint.
@@ -51,11 +53,23 @@ Coverage status expresses sufficiency over explicit obligations, not retrieval r
 
 A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable projection are durably rehydratable. A model adapter receives a structured semantic `ModelInput` derived from the persisted projection; provider-specific rendering remains outside canonical state.
 
+An accepted context need may create a fresh child `ContextRequest`. The child is a durable operational request, not proof that retrieval has occurred or that coverage is sufficient. In the current contract, it preserves the accepted proposal's query and descriptive coverage labels, inherits parent goal/task/temporal selectors, carries no model-authored exact requirements, and is subject to non-amplifying per-child resource bounds.
+
 ## Cognition
 
 `CognitiveRequest` is a durable operational request for computation by one persistent `Agent` over one persisted context projection. `ReasoningPolicy` is an immutable, versioned semantic control contract with ordered stages, explicit requirements, source lineage, and a deterministic fingerprint. A policy is not a provider prompt. `ModelInvocation` records a particular compute attempt and its replaceable model binding. `GeneratedArtifact` is durable model-produced, non-authoritative output. These cognitive records do not advance epistemic truth merely by existing. `ChoiceResult` is a typed finite-choice distribution. `DecisionRecord` is a durable adopted decision and may reference one or more cognitive outputs.
 
-`ContextNeedProposal` is a typed model-produced request for more information. It is persisted through a versioned `GeneratedArtifact` payload rather than as a new canonical truth object. A context-need proposal is explicitly not a `ContextRequest`: it carries no retrieval authority, exact semantic address, resource allocation, temporal authority, or permission to continue computation. A later host/context/executive boundary must decide whether and how to fulfill it.
+`ContextNeedProposal` is a typed model-produced request for more information. It is persisted through a versioned `GeneratedArtifact` payload rather than as a new canonical truth object. A context-need proposal is explicitly not a `ContextRequest`: it carries no retrieval authority, exact semantic address, resource allocation, temporal authority, or permission to continue computation.
+
+`ContextNeedDecision` is a durable operational host decision over one persisted context-need artifact. It records `ACCEPTED` or `REJECTED` plus the complete artifact → invocation → cognitive request → projection → parent-request lineage. An accepted decision references exactly one freshly created child `ContextRequest`; a rejected decision references none. `decision_source` is an audit label, not a `Principal`, `PermissionGrant`, or authentication proof. The decision does not itself perform retrieval, establish coverage, or permit model continuation.
+
+```text
+ContextNeedProposal
+    != ContextNeedDecision
+    != ContextRequest
+    != ContextProjection
+    != permission to continue
+```
 
 ## Executive state
 
@@ -70,6 +84,8 @@ Important inequality:
 ```text
 permission != approval != action intent != execution attempt != effect
 ```
+
+A `ContextNeedDecision` is not a substitute for these action-authority objects. Accepting an information need does not grant an external capability or action permission.
 
 ## Presentation
 
