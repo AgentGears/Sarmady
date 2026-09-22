@@ -32,9 +32,10 @@ The current executable slice now proves:
 - controlled single-intent requirement planning with explicit ambiguity and abstention instead of rank-based over-resolution;
 - new-ID derivation of exact-requirement requests followed by independent coverage compilation;
 - typed model-produced `ContextNeedProposal` outcomes that are durably recorded without becoming executable `ContextRequest` authority;
-- durable `ACCEPTED` / `REJECTED` context-need decisions with provenance revalidation, stale-source fencing, fresh child-request identity, and non-amplifying per-child resource bounds without automatic retrieval or continuation.
+- durable `ACCEPTED` / `REJECTED` context-need decisions with provenance revalidation, stale-source fencing, fresh child-request identity, and non-amplifying per-child resource bounds without automatic retrieval or continuation;
+- explicit accepted-need planning with durable `RESOLVED` / `AMBIGUOUS` / `ABSTAINED` receipts, atomic fresh exact-request derivation, candidate-frontier freshness fencing, and transitive planning-staleness propagation into projection/cognition boundaries.
 
-Semantic embedding/vector retrieval, general entity resolution/extraction, multi-intent/general natural-language requirement planning, automatic execution of accepted context needs, cumulative remaining-budget accounting, projection augmentation/replacement, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
+Semantic embedding/vector retrieval, general entity resolution/extraction, multi-intent/general natural-language requirement planning, automatic projection compilation or model continuation after accepted-need planning, cumulative remaining-budget accounting, projection augmentation/replacement, adaptive coverage expansion, adaptive reasoning routing, and external action execution remain deliberately outside the current executable slice. Model invocation exists only through a provider-neutral adapter contract; no provider SDK is part of the kernel.
 
 ## Source lineage
 
@@ -72,4 +73,4 @@ python -m pip install -e '.[dev]'
 pytest
 ```
 
-See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, `docs/context-retrieval.md`, `docs/requirement-planning.md`, `docs/context-iteration.md`, `docs/context-fulfillment.md`, and `docs/code-survival.md` before adding runtime behavior.
+See `docs/constitution.md`, `docs/ontology.md`, `docs/architecture.md`, `docs/m1-semantics.md`, `docs/model-runtime.md`, `docs/reasoning-policy.md`, `docs/context-coverage.md`, `docs/context-retrieval.md`, `docs/requirement-planning.md`, `docs/context-iteration.md`, `docs/context-fulfillment.md`, `docs/context-need-planning.md`, and `docs/code-survival.md` before adding runtime behavior.

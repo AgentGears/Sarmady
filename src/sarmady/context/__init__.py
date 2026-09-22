@@ -2,6 +2,7 @@ from .candidates import LexicalCandidateGenerator
 from .compiler import ExactContextCompiler
 from .coverage import CoverageContextCompiler
 from .fulfillment import ContextNeedCoordinator, ContextNeedDecisionResult
+from .fulfillment_planning import ContextNeedPlanningCoordinator
 from .models import (
     CandidateSet,
     ContextCandidate,
@@ -15,6 +16,7 @@ from .models import (
     context_request_fingerprint,
 )
 from .planning import ControlledRequirementPlanner
+from .planning_receipt import ContextNeedPlanningReceipt, ContextNeedPlanningResult
 
 __all__ = [
     "ContextRequest",
@@ -33,4 +35,7 @@ __all__ = [
     "ControlledRequirementPlanner",
     "ContextNeedCoordinator",
     "ContextNeedDecisionResult",
+    "ContextNeedPlanningCoordinator",
+    "ContextNeedPlanningReceipt",
+    "ContextNeedPlanningResult",
 ]

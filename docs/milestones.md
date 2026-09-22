@@ -60,14 +60,18 @@ Completed slices:
 - typed, durable, non-authoritative `ContextNeedProposal` outcomes for model steps without automatic retrieval or continuation authority;
 - explicit durable `ACCEPTED` / `REJECTED` context-need decisions with full persisted lineage validation;
 - fresh child `ContextRequest` creation for accepted needs with inherited task/temporal lineage, stale-source fencing, atomic persistence, and non-amplifying per-child token/latency bounds;
-- rejection without child request creation, including durable replay after restart.
+- rejection without child request creation, including durable replay after restart;
+- explicit planning of accepted context needs through snapshot-bound lexical candidates and the controlled requirement planner;
+- durable accepted-need planning receipts for `RESOLVED` / `AMBIGUOUS` / `ABSTAINED` outcomes, including atomic fresh exact-request derivation on resolution;
+- candidate-frontier freshness fencing at receipt persistence and projection registration, with later planning staleness propagated into projection freshness, cognition admission, invocation start, and downstream context-need acceptance;
+- in-place schema v7 → v8 upgrade while preserving existing context-need decisions.
 
 Still deferred within M2:
 
 - adaptive reasoning-policy routing and routing validation;
-- automatic retrieval/planning/compilation for accepted context needs, projection augmentation/replacement semantics, and multi-step iterative context acquisition;
-- principal-bound authorization for who may accept/reject context needs;
-- cumulative remaining-budget accounting, loop/step limits, repeated-need detection, and continuation freshness fencing;
+- automatic projection compilation, projection augmentation/replacement, and multi-step model continuation after an accepted-need planning result;
+- principal-bound authorization for who may accept/reject or plan context needs;
+- cumulative remaining-budget accounting, loop/step limits, repeated-need detection, and cycle prevention;
 - semantic embedding/vector candidate generation;
 - general multi-intent natural-language requirement planning, predicate ontology/synonyms, and learned entity resolution;
 - adaptive coverage expansion;

@@ -6,12 +6,12 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, 2, 3, 4, 5, 6, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, 3, 4, 5, 6, 7, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
@@ -22,6 +22,7 @@ def initialize_schema(db: sqlite3.Connection) -> None:
     # v6 adds no columns; it establishes conservative lineage semantics for
     # projections created before dependency capture could prove completeness.
     # v7 adds durable context-need decisions and parent/child request lineage.
+    # v8 adds durable planning receipts over accepted context-need children.
     # The schema version is deliberately advanced only after every migration
     # succeeds. If migration is interrupted, the prior version remains durable
     # and the idempotent migration is retried on the next open.
@@ -235,6 +236,44 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_decisions_child_request
             ON context_need_decisions(child_context_request_id)
             WHERE child_context_request_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS context_need_planning_receipts (
+            id TEXT PRIMARY KEY,
+            context_need_decision_id TEXT NOT NULL
+                REFERENCES context_need_decisions(id),
+            planned_at TEXT NOT NULL,
+            source_context_request_id TEXT NOT NULL REFERENCES context_requests(id),
+            source_request_fingerprint TEXT NOT NULL,
+            candidate_snapshot_id TEXT NOT NULL,
+            candidate_frontier INTEGER NOT NULL CHECK(candidate_frontier >= 0),
+            candidate_limit INTEGER NOT NULL CHECK(candidate_limit > 0),
+            candidate_generator_version TEXT NOT NULL,
+            planner_version TEXT NOT NULL,
+            status TEXT NOT NULL
+                CHECK(status IN ('RESOLVED', 'AMBIGUOUS', 'ABSTAINED')),
+            exact_requirements_json TEXT NOT NULL,
+            selected_candidate_claim_ids_json TEXT NOT NULL,
+            ambiguous_candidate_claim_ids_json TEXT NOT NULL,
+            reasons_json TEXT NOT NULL,
+            derived_context_request_id TEXT REFERENCES context_requests(id),
+            CHECK(
+                (status = 'RESOLVED' AND derived_context_request_id IS NOT NULL)
+                OR (status <> 'RESOLVED' AND derived_context_request_id IS NULL)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_context_need_planning_receipts_decision
+            ON context_need_planning_receipts(context_need_decision_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_planning_receipts_derived_request
+            ON context_need_planning_receipts(derived_context_request_id)
+            WHERE derived_context_request_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_planning_receipts_attempt
+            ON context_need_planning_receipts(
+                context_need_decision_id,
+                candidate_frontier,
+                candidate_limit,
+                candidate_generator_version,
+                planner_version
+            );
         """
     )
     _backfill_legacy_memory_created_events(db)

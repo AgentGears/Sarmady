@@ -17,6 +17,7 @@ from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.kernel import Agent
 from sarmady.runtime import CognitiveRuntime, ModelInput
 from sarmady.storage.sqlite import SQLiteCanonicalStore
+from sarmady.storage.sqlite.schema import SCHEMA_VERSION
 
 
 T0 = datetime(2026, 9, 22, 9, 0, tzinfo=UTC)
@@ -357,7 +358,7 @@ def test_acceptance_rehydrates_child_request_and_decision_after_restart(tmp_path
     with SQLiteCanonicalStore(path) as reopened:
         assert reopened.context_need_decision(decision_id) == result.decision
         assert reopened.context_request(child_id) == result.child_request
-        assert reopened.db.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert reopened.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_unknown_or_non_context_need_artifact_cannot_cross_decision_boundary(tmp_path) -> None:

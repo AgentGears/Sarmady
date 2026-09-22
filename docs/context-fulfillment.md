@@ -1,6 +1,6 @@
 # Context-Need Fulfillment Decision Contract v0.1
 
-This document establishes the first governed transition from a persisted model-produced `ContextNeedProposal` to a durable host decision. It deliberately stops before retrieval, requirement planning, projection compilation, or model continuation.
+This document establishes the first governed transition from a persisted model-produced `ContextNeedProposal` to a durable host decision. This decision slice deliberately stops before retrieval, requirement planning, projection compilation, or model continuation. The later explicit accepted-need planning boundary is defined separately in `docs/context-need-planning.md` and does not change what acceptance itself authorizes.
 
 ## Forcing function
 
@@ -24,7 +24,7 @@ ContextNeedDecision          explicit host decision
                        future governed fulfillment
 ```
 
-The final arrow is still outside this slice.
+The final arrow is still outside this decision slice.
 
 ## Governing distinctions
 
@@ -115,7 +115,7 @@ Cumulative accounting remains a separate forcing function because the present ru
 
 ## Freshness fence
 
-Acceptance is fail-closed when the source `ContextProjection` is already stale. The stale check is repeated while holding the SQLite write lock used to persist the decision, so a relevant semantic write cannot race between acceptance validation and commit.
+Acceptance is fail-closed when the source `ContextProjection` is already stale according to the store's full freshness contract. The stale check is repeated while holding the SQLite write lock used to persist the decision, so a relevant semantic write cannot race between acceptance validation and commit. This full contract may include upstream context-derived provenance, such as a later planning receipt whose proof has expired; acceptance does not inspect only the raw materialized stale column.
 
 Rejection does not create work and is allowed even when the source projection has since become stale. The rejection remains an auditable historical decision about the persisted proposal.
 
@@ -149,17 +149,17 @@ An accepted child `ContextRequest` is durable operational intent for future cont
 - continue the previous model invocation;
 - grant an external action capability or permission.
 
-Those transitions remain explicit so that model output cannot acquire execution authority merely by being accepted as an information need.
+Those transitions remain explicit so that model output cannot acquire execution authority merely by being accepted as an information need. The optional next explicit transition is `ContextNeedPlanningCoordinator.plan_accepted()`, documented in `docs/context-need-planning.md`.
 
 ## Persistence and schema
 
-SQLite schema v7 adds `context_need_decisions`. The record retains the complete parent lineage and optional child request reference. Context-need decisions are durable operational control records; creating one does not advance the semantic frontier because it does not by itself change epistemic truth.
+SQLite schema v7 introduced `context_need_decisions`. The record retains the complete parent lineage and optional child request reference. Context-need decisions are durable operational control records; creating one does not advance the semantic frontier because it does not by itself change epistemic truth.
 
-Existing schema upgrades remain in-place and idempotent. The earlier v6 projection-lineage migration still runs before the schema version is advanced when opening pre-v6 stores.
+The current schema may advance for later compatible control records (schema v8 adds accepted-need planning receipts) without changing this decision contract. Existing schema upgrades remain in-place and idempotent. The earlier v6 projection-lineage migration still runs before the schema version is advanced when opening pre-v6 stores.
 
 ## Deliberate limitations
 
-This slice does not yet implement:
+This decision boundary does not implement:
 
 - `Principal`/`PermissionGrant` authorization for who may accept or reject proposals;
 - cumulative remaining-budget accounting across a chain of cognitive steps;
@@ -167,8 +167,8 @@ This slice does not yet implement:
 - projection augmentation/replacement semantics;
 - parent/child projection and continuation records beyond the request/decision lineage captured here;
 - loop/step limits, repeated-need detection, or cycle prevention;
-- current-frontier revalidation immediately before a later continuation;
+- automatic model continuation after later explicit planning/projection work;
 - cancellation/revocation of a previously accepted child request;
 - provider-specific streaming or tool-call representations.
 
-These limitations prevent this slice from claiming general iterative reasoning. It establishes only the durable decision and request-creation boundary required before such a loop can be designed safely.
+A later explicit planning boundary now exists, but it remains separate and stops before automatic projection compilation or continuation. These limitations prevent the current combined slices from claiming general iterative reasoning.
