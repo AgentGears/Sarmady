@@ -87,7 +87,7 @@ class ContextNeedStoreMixin:
                     proposal_query=proposal.query,
                     proposal_coverage=proposal.coverage_requirements,
                 )
-                self._insert_context_request_in_tx(child_request)
+                self._insert_new_context_request_in_tx(child_request)
 
             self.db.execute(
                 """
@@ -144,6 +144,11 @@ class ContextNeedStoreMixin:
         if invocation_row["cognitive_request_id"] != str(decision.parent_cognitive_request_id):
             raise ValueError("context need decision cognitive lineage mismatch")
 
+        artifact_created_at = datetime.fromisoformat(artifact_row["created_at"])
+        invocation_completed_at = datetime.fromisoformat(invocation_row["completed_at"])
+        if decision.decided_at < artifact_created_at or decision.decided_at < invocation_completed_at:
+            raise ValueError("context need decision cannot precede its completed proposal")
+
         cognitive_row = self.db.execute(
             "SELECT * FROM cognitive_requests WHERE id = ?",
             (str(decision.parent_cognitive_request_id),),
@@ -175,6 +180,8 @@ class ContextNeedStoreMixin:
         proposal_query: str,
         proposal_coverage: tuple[str, ...],
     ) -> None:
+        if not isinstance(child.id, UUID):
+            raise TypeError("child context request id must be UUID")
         if child.id == parent.id:
             raise ValueError("child context request must use a new id")
         if child.query != proposal_query:
@@ -191,9 +198,21 @@ class ContextNeedStoreMixin:
             raise ValueError("child context request must inherit parent goal/task lineage")
         if child.known_at != parent.known_at or child.valid_at != parent.valid_at:
             raise ValueError("child context request must inherit parent temporal selectors")
+
+        if isinstance(child.token_budget, bool) or not isinstance(child.token_budget, int):
+            raise TypeError("child token budget must be an integer")
+        if child.token_budget <= 0:
+            raise ValueError("child token budget must be positive")
         if child.token_budget > parent.token_budget:
             raise ValueError("child token budget cannot exceed parent token budget")
 
+        if child.latency_budget_ms is not None:
+            if isinstance(child.latency_budget_ms, bool) or not isinstance(
+                child.latency_budget_ms, int
+            ):
+                raise TypeError("child latency budget must be an integer")
+            if child.latency_budget_ms <= 0:
+                raise ValueError("child latency budget must be positive")
         parent_latency = (
             parent.latency_budget_ms
             if parent.latency_budget_ms is not None and parent.latency_budget_ms > 0
@@ -205,10 +224,17 @@ class ContextNeedStoreMixin:
             if child.latency_budget_ms > parent_latency:
                 raise ValueError("child latency budget cannot exceed parent latency budget")
 
-    def _insert_context_request_in_tx(self, request: ContextRequest) -> None:
+    def _insert_new_context_request_in_tx(self, request: ContextRequest) -> None:
+        existing = self.db.execute(
+            "SELECT 1 FROM context_requests WHERE id = ?",
+            (str(request.id),),
+        ).fetchone()
+        if existing is not None:
+            raise ValueError("child context request id already exists")
+
         self.db.execute(
             """
-            INSERT OR IGNORE INTO context_requests(
+            INSERT INTO context_requests(
                 id, query, token_budget, latency_budget_ms, goal_ref, task_ref,
                 coverage_requirements_json, known_at, valid_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -241,7 +267,7 @@ class ContextNeedStoreMixin:
         )
         persisted = self.context_request(request.id)
         if persisted != request:
-            raise ValueError("context request id is already bound to different semantics")
+            raise RuntimeError("fresh child context request did not round-trip exactly")
 
     def context_need_decision(self, decision_id: UUID) -> ContextNeedDecision | None:
         row = self.db.execute(
