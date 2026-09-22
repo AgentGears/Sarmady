@@ -23,6 +23,8 @@ Agent
 
 A typed `ContextNeedProposal` is model-produced non-authoritative output. When emitted through the step interface it is serialized into a versioned `GeneratedArtifact(kind=context-need:v1)` so the need survives restart without pretending that a follow-up `ContextRequest` has already been authorized.
 
+A later host/context operation may persist a `ContextNeedDecision`. That record is not produced by the model adapter and is not part of the invocation completion transaction. An accepted decision may create one fresh child `ContextRequest`; it still does not perform retrieval or start a new model invocation.
+
 ## Adapter boundary
 
 A `ModelAdapter` receives only `ModelInput`: agent/request/projection identifiers, the pinned snapshot identifier, operation metadata, the structured immutable `ReasoningPolicy` (when selected) plus its fingerprint, structured context items, and conflict references. It does not receive the canonical store, credentials, authority objects, or mutation capabilities.
@@ -39,21 +41,31 @@ A stale context projection cannot create a cognitive request. Freshness is check
 
 Once an invocation has started, its projection remains a historical immutable snapshot. If canonical state changes during the model call, the invocation is not rewritten; later adoption, consequential action, or future context continuation must revalidate current state separately.
 
+The context-need decision boundary independently rejects acceptance when the proposal's source projection is already stale, with the final stale check performed under the decision write lock. This is not yet a continuation fence: a future continuation must still revalidate current state immediately before another model invocation.
+
 ## Failure semantics
 
 An invocation is persisted before the adapter call. Adapter exceptions and malformed adapter responses terminate the invocation with a durable error code and do not create a `GeneratedArtifact`. Successful terminal responses atomically terminate the invocation and persist exactly one generated artifact for that completion path.
 
 A valid `ContextNeedProposal` is also a successful invocation outcome: exactly one versioned generated artifact is persisted, and `invoke_step()` returns `NEEDS_CONTEXT`. Unsupported step outputs are malformed adapter responses and use the same durable failure path.
 
+A later accepted context-need decision writes its decision and child request atomically. Failure after the child insert but before the decision insert rolls the transaction back, so no orphan request remains.
+
 ## Context-need authority boundary
 
-The step interface preserves:
+The runtime and fulfillment services preserve:
 
 ```text
-ContextNeedProposal != ContextRequest != ContextProjection
+ContextNeedProposal
+    != ContextNeedDecision
+    != ContextRequest
+    != ContextProjection
+    != permission to continue
 ```
 
-The model may say what information it needs and why. It may not, through this contract, choose exact canonical addresses, allocate token/latency budget, select a retriever, restore or strengthen memory, or authorize another invocation. Those transitions require separate context/executive logic.
+The model may say what information it needs and why. It may not, through the adapter contract, choose exact canonical addresses, allocate token/latency budget, select a retriever, restore or strengthen memory, or authorize another invocation.
+
+A separate host caller may accept or reject a persisted proposal through `ContextNeedCoordinator`. Acceptance creates one new child request with inherited task/temporal lineage and non-amplifying per-child resource bounds. `decision_source` is only an audit label; this slice does not authenticate a principal or evaluate a `PermissionGrant`. See `docs/context-fulfillment.md`.
 
 ## Model-swap invariant
 
@@ -61,4 +73,4 @@ A process may close, reopen the same durable store, load the same agent and cont
 
 ## Non-goals
 
-This contract does not define provider SDKs, prompt templates, streaming, adaptive model routing, token accounting, adoption of generated claims, external actions, or automatic fulfillment/iteration of model-proposed context needs. Reasoning-policy semantics are defined separately in `docs/reasoning-policy.md`; context-need proposal semantics are defined in `docs/context-iteration.md`; provider-specific rendering remains outside the kernel.
+This contract does not define provider SDKs, prompt templates, streaming, adaptive model routing, cumulative token/latency consumption accounting, adoption of generated claims, external actions, automatic retrieval/compilation for accepted context needs, projection replacement/augmentation, or automatic iterative continuation. Reasoning-policy semantics are defined separately in `docs/reasoning-policy.md`; context-need proposal semantics are defined in `docs/context-iteration.md`; context-need decision semantics are defined in `docs/context-fulfillment.md`; provider-specific rendering remains outside the kernel.
