@@ -130,7 +130,9 @@ The same full freshness contract is used when accepting a later model-produced c
 
 For a resolved plan, the derived exact request and planning receipt commit atomically. If either write fails, neither survives. `AMBIGUOUS` and `ABSTAINED` receipts persist without creating a derived request.
 
-A planning attempt is identified by accepted decision, candidate frontier, candidate limit, candidate-generator version, and planner version. Repeating the same attempt is rejected explicitly rather than silently creating another exact request. A caller recovering from an uncertain response can reload the already persisted receipt. Replanning is allowed when the frontier changes or when the host deliberately changes the candidate limit.
+The durable row retains its exact candidate frontier, candidate limit, candidate-generator version, and planner version. For retry ownership, however, raw frontier movement is not sufficient to create a new attempt: `SEEN` / `USED` telemetry advances the semantic log frontier while remaining intentionally irrelevant to candidate eligibility. If a same-decision, same-limit, same-generator/planner receipt is still **non-stale**, it owns that planning configuration and a repeat call is rejected explicitly rather than silently creating another exact request. A caller recovering from an uncertain response can reload the already persisted receipt.
+
+Replanning with the same configuration becomes eligible only after a relevant semantic/memory-state change makes the prior receipt stale. A deliberately different candidate limit is a different planning configuration and may be evaluated at the same semantic state. The schema also retains a unique exact-attempt index over decision/frontier/limit/generator/planner as a lower-level duplicate fence.
 
 Receipts and their derived requests survive close/reopen. SQLite schema v8 adds `context_need_planning_receipts`; existing v7 stores upgrade in place without rewriting existing context-need decisions.
 
