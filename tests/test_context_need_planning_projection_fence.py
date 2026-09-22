@@ -68,7 +68,7 @@ def _accepted(store: SQLiteCanonicalStore):
         operation="answer-system-question",
         adapter=NeedAdapter(),
     )
-    return ContextNeedCoordinator(
+    accepted = ContextNeedCoordinator(
         store,
         clock=lambda: T0 + timedelta(minutes=2),
     ).accept(
@@ -76,11 +76,12 @@ def _accepted(store: SQLiteCanonicalStore):
         reason="allow exact planning",
         decision_source="test:host-policy",
     )
+    return agent, accepted
 
 
 def test_stale_planning_receipt_cannot_register_any_projection_for_derived_request(tmp_path) -> None:
     with SQLiteCanonicalStore(tmp_path / "sarmady.db") as store:
-        accepted = _accepted(store)
+        _, accepted = _accepted(store)
         planned = ContextNeedPlanningCoordinator(
             store,
             clock=lambda: T0 + timedelta(minutes=3),
@@ -112,3 +113,72 @@ def test_stale_planning_receipt_cannot_register_any_projection_for_derived_reque
         projection = CoverageContextCompiler(store).compile(replanned.derived_request)
         assert projection.request_id == replanned.derived_request.id
         assert not store.projection_is_stale(projection.id)
+
+
+def test_persisted_projection_inherits_later_planning_staleness_and_cognition_fence(tmp_path) -> None:
+    with SQLiteCanonicalStore(tmp_path / "sarmady.db") as store:
+        agent, accepted = _accepted(store)
+        planned = ContextNeedPlanningCoordinator(
+            store,
+            clock=lambda: T0 + timedelta(minutes=3),
+        ).plan_accepted(context_need_decision_id=accepted.decision.id)
+        assert planned.derived_request is not None
+        projection = CoverageContextCompiler(store).compile(planned.derived_request)
+        assert not store.projection_is_stale(projection.id)
+
+        _observe(store, "system:new", "serial_number", "ABC", minute=4)
+
+        assert store.context_need_planning_receipt_is_stale(planned.receipt.id)
+        assert store.projection_is_stale(projection.id)
+        assert (
+            store.projection_stale_reason(projection.id)
+            == "context-need-planning-receipt-stale"
+        )
+        with pytest.raises(ValueError, match="stale context projection"):
+            CognitiveRuntime(
+                store,
+                clock=lambda: T0 + timedelta(minutes=5),
+            ).invoke_step(
+                agent_id=agent.id,
+                context_projection_id=projection.id,
+                operation="must-not-run-on-stale-plan",
+                adapter=NeedAdapter(),
+            )
+
+
+def test_context_need_acceptance_honors_dynamic_planning_staleness(tmp_path) -> None:
+    with SQLiteCanonicalStore(tmp_path / "sarmady.db") as store:
+        agent, accepted = _accepted(store)
+        planned = ContextNeedPlanningCoordinator(
+            store,
+            clock=lambda: T0 + timedelta(minutes=3),
+        ).plan_accepted(context_need_decision_id=accepted.decision.id)
+        assert planned.derived_request is not None
+        projection = CoverageContextCompiler(store).compile(planned.derived_request)
+
+        # The second proposal is valid at emission time.
+        step = CognitiveRuntime(
+            store,
+            clock=lambda: T0 + timedelta(minutes=4),
+        ).invoke_step(
+            agent_id=agent.id,
+            context_projection_id=projection.id,
+            operation="need-another-fact",
+            adapter=NeedAdapter(),
+        )
+
+        # Later semantic state invalidates the planning proof without needing to
+        # rewrite the historical projection row's materialized stale column.
+        _observe(store, "system:new", "serial_number", "ABC", minute=5)
+        assert store.projection_is_stale(projection.id)
+
+        with pytest.raises(ValueError, match="stale context projection"):
+            ContextNeedCoordinator(
+                store,
+                clock=lambda: T0 + timedelta(minutes=6),
+            ).accept(
+                context_need_artifact_id=step.artifact.id,
+                reason="must not authorize from an expired planning proof",
+                decision_source="test:host-policy",
+            )
+        assert store.context_need_decision_for_artifact(step.artifact.id) is None
