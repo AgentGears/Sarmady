@@ -1,0 +1,14 @@
+{
+  "review": "accepted-context-need-planning-receipts-first-pass",
+  "repository": "AgentGears/Sarmady",
+  "base_sha": "915a7ed96514207a16ead8b07386145f4bc3d5de",
+  "candidate_branch": "m2/context-need-planning-receipts",
+  "candidate_sha": "07ec6327d1ad75012ca477ad40ff7c469e467be4",
+  "ci_run_id": 35792467900,
+  "python_matrix": ["3.12", "3.13", "3.14"],
+  "test_count": 181,
+  "status": "complete",
+  "unresolved_merge_blockers": 0,
+  "findings_fixed_before_freeze": 7,
+  "second_review_ready": true
+}
