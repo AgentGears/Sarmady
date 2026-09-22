@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -8,6 +9,10 @@ from uuid import UUID
 def _require_aware(value: datetime, field_name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
+
+
+CONTEXT_NEED_ARTIFACT_KIND = "context-need:v1"
+_CONTEXT_NEED_CONTRACT = "ContextNeedProposal:v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +63,100 @@ class GeneratedArtifact:
         if not self.artifact_kind.strip():
             raise ValueError("artifact_kind is required")
         _require_aware(self.created_at, "created_at")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextNeedProposal:
+    """Non-authoritative model proposal for additional semantic context.
+
+    The proposal deliberately carries only the information need. It does not
+    allocate compute, select exact semantic addresses, create a ContextRequest,
+    or authorize retrieval/memory mutation.
+    """
+
+    query: str
+    reason: str
+    coverage_requirements: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.query, str) or not self.query.strip():
+            raise ValueError("context need query is required")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("context need reason is required")
+        if isinstance(self.coverage_requirements, str):
+            raise TypeError("context need coverage_requirements must be an iterable of strings")
+        try:
+            requirements = tuple(self.coverage_requirements)
+        except TypeError as exc:
+            raise TypeError(
+                "context need coverage_requirements must be an iterable of strings"
+            ) from exc
+        if any(not isinstance(item, str) or not item.strip() for item in requirements):
+            raise TypeError(
+                "context need coverage_requirements must contain non-empty strings"
+            )
+        if len(requirements) != len(set(requirements)):
+            raise ValueError("context need coverage_requirements must be unique")
+        object.__setattr__(self, "coverage_requirements", requirements)
+
+
+def serialize_context_need_proposal(proposal: ContextNeedProposal) -> str:
+    """Serialize a context-need proposal into the durable v1 artifact payload.
+
+    Reconstructing through the public constructor revalidates the value at the
+    durable serialization boundary, including against post-construction
+    ``object.__setattr__`` mutation of a frozen dataclass.
+    """
+
+    if not isinstance(proposal, ContextNeedProposal):
+        raise TypeError("proposal must be ContextNeedProposal")
+    snapshot = ContextNeedProposal(
+        query=proposal.query,
+        reason=proposal.reason,
+        coverage_requirements=proposal.coverage_requirements,
+    )
+    return json.dumps(
+        {
+            "contract": _CONTEXT_NEED_CONTRACT,
+            "query": snapshot.query,
+            "reason": snapshot.reason,
+            "coverage_requirements": list(snapshot.coverage_requirements),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def deserialize_context_need_proposal(content: str) -> ContextNeedProposal:
+    """Strictly rehydrate a durable v1 context-need artifact payload."""
+
+    if not isinstance(content, str):
+        raise TypeError("context need artifact content must be a string")
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("context need artifact content is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("context need artifact payload must be an object")
+    expected_keys = {
+        "contract",
+        "query",
+        "reason",
+        "coverage_requirements",
+    }
+    if set(payload) != expected_keys:
+        raise ValueError("context need artifact payload has unexpected fields")
+    if payload["contract"] != _CONTEXT_NEED_CONTRACT:
+        raise ValueError("unsupported context need artifact contract")
+    requirements = payload["coverage_requirements"]
+    if not isinstance(requirements, list):
+        raise TypeError("context need coverage_requirements must be a JSON array")
+    return ContextNeedProposal(
+        query=payload["query"],
+        reason=payload["reason"],
+        coverage_requirements=tuple(requirements),
+    )
 
 
 @dataclass(frozen=True, slots=True)

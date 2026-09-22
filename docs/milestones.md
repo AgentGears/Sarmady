@@ -56,12 +56,13 @@ Completed slices:
 - request-semantic fingerprints and explicit candidate-set exhaustiveness so truncated top-k retrieval cannot masquerade as uniqueness;
 - controlled single-predicate natural-language requirement planning with `RESOLVED` / `AMBIGUOUS` / `ABSTAINED` outcomes;
 - ambiguity-preserving subject resolution from discriminating query terms rather than raw rank preference;
-- new-ID derivation of exact-requirement requests followed by independent coverage compilation.
+- new-ID derivation of exact-requirement requests followed by independent coverage compilation;
+- typed, durable, non-authoritative `ContextNeedProposal` outcomes for model steps without automatic retrieval or continuation authority.
 
 Still deferred within M2:
 
 - adaptive reasoning-policy routing and routing validation;
-- iterative context requests during reasoning;
+- controlled fulfillment of model-proposed context needs, projection augmentation/replacement semantics, and multi-step iterative context acquisition;
 - semantic embedding/vector candidate generation;
 - general multi-intent natural-language requirement planning, predicate ontology/synonyms, and learned entity resolution;
 - adaptive coverage expansion;
