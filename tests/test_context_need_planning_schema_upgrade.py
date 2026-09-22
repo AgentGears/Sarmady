@@ -95,10 +95,24 @@ def test_v7_store_without_planning_table_upgrades_and_can_plan_existing_acceptan
             """
         ).fetchone()
         assert table is not None
+        columns = {
+            row[1]
+            for row in upgraded.db.execute(
+                "PRAGMA table_info('context_need_planning_receipts')"
+            ).fetchall()
+        }
+        assert "candidate_limit" in columns
+        indexes = upgraded.db.execute(
+            "PRAGMA index_list('context_need_planning_receipts')"
+        ).fetchall()
+        unique_indexes = {row[1] for row in indexes if row[2]}
+        assert "idx_context_need_planning_receipts_attempt" in unique_indexes
+        assert "idx_context_need_planning_receipts_derived_request" in unique_indexes
         assert upgraded.context_need_decision(decision_id) is not None
 
         result = ContextNeedPlanningCoordinator(
             upgraded,
             clock=lambda: T0 + timedelta(minutes=3),
         ).plan_accepted(context_need_decision_id=decision_id)
+        assert result.receipt.candidate_limit == 20
         assert upgraded.context_need_planning_receipt(result.receipt.id) == result.receipt
