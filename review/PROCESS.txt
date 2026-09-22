@@ -1,0 +1,4 @@
+1. Exhaustive maintainer first-pass completed on exact candidate SHA.
+2. First-pass findings frozen on this separate branch.
+3. Independent second review must be performed without seeding it with first-pass findings.
+4. Reconcile only after the second review is complete.
