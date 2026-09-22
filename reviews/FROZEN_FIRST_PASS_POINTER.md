@@ -1,0 +1,1 @@
+The exhaustive maintainer first-pass review for the context-need fulfillment slice was frozen independently on branch `review/context-need-fulfillment-first-pass` at reviewed implementation SHA `6c8e5a636360e38f78eed29324f35d8e1c301439` before second review. This pointer contains no findings so a second reviewer can reconstruct the review surface independently.
