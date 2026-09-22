@@ -25,15 +25,16 @@ class ContextNeedPlanningReceipt:
 
     The embedded ``RequirementPlan`` remains derived context computation. The
     receipt records which accepted child request was planned, against which
-    candidate snapshot/frontier, and whether planning produced a new exact
-    request. It is not epistemic truth and does not authorize projection
-    compilation or model continuation.
+    candidate snapshot/frontier and candidate limit, and whether planning
+    produced a new exact request. It is not epistemic truth and does not
+    authorize projection compilation or model continuation.
     """
 
     id: UUID
     context_need_decision_id: UUID
     planned_at: datetime
     plan: RequirementPlan
+    candidate_limit: int = 20
     derived_context_request_id: UUID | None = None
 
     def __post_init__(self) -> None:
@@ -49,6 +50,12 @@ class ContextNeedPlanningReceipt:
             self.plan.source_request_id,
             "context need planning receipt source request id",
         )
+        if isinstance(self.candidate_limit, bool) or not isinstance(
+            self.candidate_limit, int
+        ):
+            raise TypeError("context need planning receipt candidate_limit must be an integer")
+        if self.candidate_limit <= 0:
+            raise ValueError("context need planning receipt candidate_limit must be positive")
         if self.derived_context_request_id is not None:
             _require_uuid(
                 self.derived_context_request_id,
