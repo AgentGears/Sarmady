@@ -189,9 +189,7 @@ class CognitiveRuntime:
         )
 
         try:
-            response = adapter.invoke(model_input)
-            if not isinstance(response, ModelResponse):
-                raise TypeError("model adapter must return ModelResponse")
+            response = self._validated_model_response(adapter.invoke(model_input))
             return self._complete_artifact(
                 invocation,
                 artifact_kind=response.artifact_kind,
@@ -231,10 +229,11 @@ class CognitiveRuntime:
         try:
             response = adapter.invoke(model_input)
             if isinstance(response, ModelResponse):
+                terminal = self._validated_model_response(response)
                 artifact = self._complete_artifact(
                     invocation,
-                    artifact_kind=response.artifact_kind,
-                    content=response.content,
+                    artifact_kind=terminal.artifact_kind,
+                    content=terminal.content,
                 )
                 return CognitiveStepResult(
                     status=CognitiveStepStatus.COMPLETED,
@@ -247,6 +246,7 @@ class CognitiveRuntime:
                     invocation,
                     artifact_kind=CONTEXT_NEED_ARTIFACT_KIND,
                     content=content,
+                    allow_context_need=True,
                 )
                 return CognitiveStepResult(
                     status=CognitiveStepStatus.NEEDS_CONTEXT,
@@ -259,6 +259,17 @@ class CognitiveRuntime:
         except Exception as exc:
             self._fail_open_invocation(invocation, exc)
             raise
+
+    @staticmethod
+    def _validated_model_response(response: object) -> ModelResponse:
+        """Revalidate adapter output at the runtime/durable boundary."""
+
+        if not isinstance(response, ModelResponse):
+            raise TypeError("model adapter must return ModelResponse")
+        return ModelResponse(
+            artifact_kind=response.artifact_kind,
+            content=response.content,
+        )
 
     def _begin_invocation(
         self,
@@ -321,7 +332,12 @@ class CognitiveRuntime:
         *,
         artifact_kind: str,
         content: str,
+        allow_context_need: bool = False,
     ) -> GeneratedArtifact:
+        if artifact_kind == CONTEXT_NEED_ARTIFACT_KIND and not allow_context_need:
+            raise ValueError(
+                "context-need:v1 artifact is reserved for typed ContextNeedProposal outcomes"
+            )
         artifact = GeneratedArtifact(
             id=uuid4(),
             invocation_id=invocation.id,
