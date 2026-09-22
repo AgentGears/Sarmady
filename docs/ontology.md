@@ -6,7 +6,7 @@ Sarmady separates three classes of state:
 - **Derived/materialized state** — reconstructible views such as current claim heads, memory lifecycle state, memory-health snapshots, and context-projection staleness.
 - **Ephemeral compute** — prompts, retrieval candidates, KV caches, logits, scratch reasoning, and provider-specific request structures.
 
-Durable operational records such as context requests, cognitive requests, model invocations, generated artifacts, and context-need decisions are persisted for control/recovery/audit without becoming epistemic truth merely by existing.
+Durable operational records such as context requests, cognitive requests, model invocations, generated artifacts, context-need decisions, and accepted-need planning receipts are persisted for control/recovery/audit without becoming epistemic truth merely by existing.
 
 ## Identity
 
@@ -47,13 +47,15 @@ Claims carry both world-valid time (`valid_from`, `valid_to`) and knowledge/reco
 
 `ContextItem` references canonical artifacts. `ContextProjection` is an immutable, provenance-bearing, coverage-aware projection pinned to a transactionally consistent semantic snapshot/frontier.
 
-A projection may later become **stale** when one of its recorded dependencies changes. Staleness is derived state; the projection itself remains immutable and auditable as a historical snapshot.
+A projection may later become **stale** when one of its recorded dependencies changes. Staleness is derived state; the projection itself remains immutable and auditable as a historical snapshot. For a projection derived from an accepted-context-need planning receipt, the store's freshness contract also includes the upstream planning proof: later state may invalidate lexical uniqueness/ambiguity and therefore make the projection unusable even when its exact-key dependency did not itself change.
 
 Coverage status expresses sufficiency over explicit obligations, not retrieval relevance: `COMPLETE` means every typed requirement is satisfied, `PARTIAL` means some are satisfied, and `INSUFFICIENT` means none are satisfied. Explicit contradictions require the competing claims and their evidence to survive context gating before the affected requirement is complete.
 
 A `ContextProjection` is not a prompt. `ContextRequest` and the full immutable projection are durably rehydratable. A model adapter receives a structured semantic `ModelInput` derived from the persisted projection; provider-specific rendering remains outside canonical state.
 
-An accepted context need may create a fresh child `ContextRequest`. The child is a durable operational request, not proof that retrieval has occurred or that coverage is sufficient. In the current contract, it preserves the accepted proposal's query and descriptive coverage labels, inherits parent goal/task/temporal selectors, carries no model-authored exact requirements, and is subject to non-amplifying per-child resource bounds.
+An accepted context need may create a fresh child `ContextRequest`. The child is a durable operational request, not proof that retrieval has occurred or that coverage is sufficient. It preserves the accepted proposal's query and descriptive coverage labels, inherits parent goal/task/temporal selectors, carries no model-authored exact requirements, and is subject to non-amplifying per-child resource bounds.
+
+`ContextNeedPlanningReceipt` is a durable operational record of one explicit planning pass over that accepted child request. It binds a derived `RequirementPlan` to the accepted decision, source-request fingerprint, candidate snapshot/frontier, generator/planner versions, candidate claim references, and optional fresh derived exact-request ID. `AMBIGUOUS` and `ABSTAINED` receipts carry no exact request. A `RESOLVED` receipt may create one fresh exact request under the current controlled-planner contract. The receipt remains derived/control state; it is neither a claim nor proof of coverage.
 
 ## Cognition
 
@@ -66,7 +68,9 @@ An accepted context need may create a fresh child `ContextRequest`. The child is
 ```text
 ContextNeedProposal
     != ContextNeedDecision
-    != ContextRequest
+    != accepted child ContextRequest
+    != ContextNeedPlanningReceipt
+    != derived exact ContextRequest
     != ContextProjection
     != permission to continue
 ```
@@ -85,7 +89,7 @@ Important inequality:
 permission != approval != action intent != execution attempt != effect
 ```
 
-A `ContextNeedDecision` is not a substitute for these action-authority objects. Accepting an information need does not grant an external capability or action permission.
+A `ContextNeedDecision` or `ContextNeedPlanningReceipt` is not a substitute for these action-authority objects. Accepting or planning an information need does not grant an external capability or action permission.
 
 ## Presentation
 
