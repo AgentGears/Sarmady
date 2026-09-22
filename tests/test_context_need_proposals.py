@@ -181,6 +181,41 @@ def test_invoke_step_persists_context_need_without_creating_context_authority(tm
         assert request.context_projection_id == projection.id
 
 
+def test_context_need_survives_restart_without_implicit_fulfillment(tmp_path) -> None:
+    path = tmp_path / "sarmady.db"
+    proposal = ContextNeedProposal(
+        query="Which operating system is installed?",
+        reason="The persisted projection does not contain that fact.",
+        coverage_requirements=("current operating system",),
+    )
+
+    with SQLiteCanonicalStore(path) as store:
+        agent, projection = _seed_agent_projection(store)
+        result = CognitiveRuntime(
+            store,
+            clock=lambda: T0 + timedelta(minutes=1),
+        ).invoke_step(
+            agent_id=agent.id,
+            context_projection_id=projection.id,
+            operation="answer-machine-question",
+            adapter=NeedAdapter(proposal),
+        )
+        artifact_id = result.artifact.id
+        context_request_count = store.db.execute(
+            "SELECT COUNT(*) FROM context_requests"
+        ).fetchone()[0]
+
+    with SQLiteCanonicalStore(path) as reopened:
+        restored = reopened.artifact(artifact_id)
+        assert restored is not None
+        assert restored.artifact_kind == CONTEXT_NEED_ARTIFACT_KIND
+        assert context_need_from_artifact(restored) == proposal
+        assert (
+            reopened.db.execute("SELECT COUNT(*) FROM context_requests").fetchone()[0]
+            == context_request_count
+        )
+
+
 def test_invoke_step_preserves_terminal_model_response_path(tmp_path) -> None:
     path = tmp_path / "sarmady.db"
     with SQLiteCanonicalStore(path) as store:
