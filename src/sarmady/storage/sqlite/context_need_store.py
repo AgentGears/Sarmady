@@ -74,12 +74,16 @@ class ContextNeedStoreMixin:
             if decision.decision is ContextNeedDecisionKind.ACCEPTED:
                 assert child_request is not None
                 projection_row = self.db.execute(
-                    "SELECT stale FROM context_projections WHERE id = ?",
+                    "SELECT 1 FROM context_projections WHERE id = ?",
                     (str(decision.parent_context_projection_id),),
                 ).fetchone()
                 if projection_row is None:
                     raise ValueError("unknown parent context projection")
-                if bool(projection_row["stale"]):
+                # Use the store's full freshness contract rather than the raw
+                # materialized stale bit. Later context-derived provenance
+                # layers (for example an expired planning receipt) may make a
+                # projection unusable without rewriting its historical row.
+                if self.projection_is_stale(decision.parent_context_projection_id):
                     raise ValueError("cannot accept context need from a stale context projection")
                 self._validate_child_context_request(
                     parent_request,
