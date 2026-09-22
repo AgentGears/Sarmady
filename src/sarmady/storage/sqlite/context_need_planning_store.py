@@ -19,6 +19,14 @@ from ._codec import iso
 
 _SUPPORTED_CANDIDATE_GENERATOR = "lexical-v0.2"
 _SUPPORTED_PLANNER = "controlled-requirement-v0.1"
+_ALLOWED_ABSTENTION_REASONS = frozenset(
+    {
+        "candidate-set-non-exhaustive",
+        "no-candidates",
+        "no-explicit-predicate-evidence",
+        "predicate-ambiguous-or-multi-intent",
+    }
+)
 
 
 class ContextNeedPlanningStoreMixin:
@@ -149,8 +157,12 @@ class ContextNeedPlanningStoreMixin:
             raise ValueError("planning candidate frontier must be an integer") from exc
         if frontier < 0:
             raise ValueError("planning candidate frontier cannot be negative")
+        if plan.canonical_frontier != str(frontier):
+            raise ValueError("planning candidate frontier must use canonical integer spelling")
         if plan.candidate_snapshot_id != f"sqlite:{frontier}":
             raise ValueError("planning candidate snapshot must match candidate frontier")
+
+        self._validate_controlled_planner_shape(plan)
 
         current_frontier = self.frontier()
         if frontier > current_frontier:
@@ -176,24 +188,63 @@ class ContextNeedPlanningStoreMixin:
             )
 
         if plan.status is RequirementPlanStatus.RESOLVED:
-            for requirement, claim_id in zip(
-                plan.exact_requirements,
-                plan.selected_candidate_claim_ids,
-                strict=True,
+            requirement = plan.exact_requirements[0]
+            claim_id = plan.selected_candidate_claim_ids[0]
+            row = self.db.execute(
+                "SELECT subject, predicate FROM claims WHERE id = ?",
+                (str(claim_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("planning selected candidate claim is missing")
+            if (
+                row["subject"] != requirement.subject
+                or row["predicate"] != requirement.predicate
             ):
-                row = self.db.execute(
-                    "SELECT subject, predicate FROM claims WHERE id = ?",
-                    (str(claim_id),),
-                ).fetchone()
-                if row is None:
-                    raise ValueError("planning selected candidate claim is missing")
-                if (
-                    row["subject"] != requirement.subject
-                    or row["predicate"] != requirement.predicate
-                ):
-                    raise ValueError(
-                        "planning selected candidate does not match exact requirement"
-                    )
+                raise ValueError(
+                    "planning selected candidate does not match exact requirement"
+                )
+
+    @staticmethod
+    def _validate_controlled_planner_shape(plan: RequirementPlan) -> None:
+        """Fence the exact output grammar of controlled-requirement-v0.1.
+
+        ``RequirementPlan`` is intentionally generic enough for future planners.
+        A persisted receipt that names the v0.1 planner must, however, be an
+        outcome that this concrete planner can actually emit.
+        """
+
+        if plan.status is RequirementPlanStatus.RESOLVED:
+            if len(plan.exact_requirements) != 1 or len(
+                plan.selected_candidate_claim_ids
+            ) != 1:
+                raise ValueError(
+                    "controlled requirement v0.1 resolved plan must contain exactly one obligation"
+                )
+            if plan.reasons:
+                raise ValueError(
+                    "controlled requirement v0.1 resolved plan cannot carry reasons"
+                )
+            return
+
+        if plan.status is RequirementPlanStatus.AMBIGUOUS:
+            if plan.reasons != ("ambiguous-subject",):
+                raise ValueError(
+                    "controlled requirement v0.1 ambiguous plan has invalid reason"
+                )
+            if len(plan.ambiguous_candidate_claim_ids) < 2:
+                raise ValueError(
+                    "controlled requirement v0.1 ambiguity requires multiple candidates"
+                )
+            return
+
+        if plan.ambiguous_candidate_claim_ids:
+            raise ValueError(
+                "controlled requirement v0.1 abstention cannot carry ambiguous candidates"
+            )
+        if len(plan.reasons) != 1 or plan.reasons[0] not in _ALLOWED_ABSTENTION_REASONS:
+            raise ValueError(
+                "controlled requirement v0.1 abstention has invalid reason"
+            )
 
     def _validate_candidate_claim_at_frontier(
         self,
