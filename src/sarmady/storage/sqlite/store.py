@@ -11,6 +11,7 @@ from weakref import WeakKeyDictionary
 
 from ._codec import iso
 from .cognitive_store import CognitiveStoreMixin
+from .context_need_planning_fence import ContextNeedPlanningProjectionFenceMixin
 from .context_need_planning_store import ContextNeedPlanningStoreMixin
 from .context_need_store import ContextNeedStoreMixin
 from .epistemic_store import EpistemicStoreMixin
@@ -159,6 +160,7 @@ class SQLiteCanonicalStore(
     IdentityStoreMixin,
     EpistemicStoreMixin,
     MemoryStoreMixin,
+    ContextNeedPlanningProjectionFenceMixin,
     ProjectionStoreMixin,
     ReasoningStoreMixin,
     CognitiveStoreMixin,
