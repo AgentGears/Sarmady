@@ -25,9 +25,9 @@ class ContextNeedDecisionKind(str, Enum):
 class ContextNeedDecision:
     """Durable host decision over one persisted context-need artifact.
 
-    ``decision_source`` is an audit label identifying the trusted host boundary
-    that supplied the decision. It is not itself an authentication, permission,
-    or capability primitive.
+    ``decision_source`` is a caller-supplied audit label for the host boundary
+    that supplied the decision. The label is not itself authentication,
+    permission, principal identity, or a capability primitive.
     """
 
     id: UUID
