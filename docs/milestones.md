@@ -57,12 +57,17 @@ Completed slices:
 - controlled single-predicate natural-language requirement planning with `RESOLVED` / `AMBIGUOUS` / `ABSTAINED` outcomes;
 - ambiguity-preserving subject resolution from discriminating query terms rather than raw rank preference;
 - new-ID derivation of exact-requirement requests followed by independent coverage compilation;
-- typed, durable, non-authoritative `ContextNeedProposal` outcomes for model steps without automatic retrieval or continuation authority.
+- typed, durable, non-authoritative `ContextNeedProposal` outcomes for model steps without automatic retrieval or continuation authority;
+- explicit durable `ACCEPTED` / `REJECTED` context-need decisions with full persisted lineage validation;
+- fresh child `ContextRequest` creation for accepted needs with inherited task/temporal lineage, stale-source fencing, atomic persistence, and non-amplifying per-child token/latency bounds;
+- rejection without child request creation, including durable replay after restart.
 
 Still deferred within M2:
 
 - adaptive reasoning-policy routing and routing validation;
-- controlled fulfillment of model-proposed context needs, projection augmentation/replacement semantics, and multi-step iterative context acquisition;
+- automatic retrieval/planning/compilation for accepted context needs, projection augmentation/replacement semantics, and multi-step iterative context acquisition;
+- principal-bound authorization for who may accept/reject context needs;
+- cumulative remaining-budget accounting, loop/step limits, repeated-need detection, and continuation freshness fencing;
 - semantic embedding/vector candidate generation;
 - general multi-intent natural-language requirement planning, predicate ontology/synonyms, and learned entity resolution;
 - adaptive coverage expansion;

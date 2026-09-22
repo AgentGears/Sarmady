@@ -1,6 +1,7 @@
 from .candidates import LexicalCandidateGenerator
 from .compiler import ExactContextCompiler
 from .coverage import CoverageContextCompiler
+from .fulfillment import ContextNeedCoordinator, ContextNeedDecisionResult
 from .models import (
     CandidateSet,
     ContextCandidate,
@@ -30,4 +31,6 @@ __all__ = [
     "CoverageContextCompiler",
     "LexicalCandidateGenerator",
     "ControlledRequirementPlanner",
+    "ContextNeedCoordinator",
+    "ContextNeedDecisionResult",
 ]

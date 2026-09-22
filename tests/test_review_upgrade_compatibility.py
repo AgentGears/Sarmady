@@ -76,7 +76,10 @@ def test_v5_projection_is_migrated_to_unproven_and_stale(tmp_path) -> None:
             (str(projection_id),),
         ).fetchone()
         assert dependency is not None
-        assert int(upgraded.db.execute("PRAGMA user_version").fetchone()[0]) == 6
+        assert (
+            int(upgraded.db.execute("PRAGMA user_version").fetchone()[0])
+            == schema_module.SCHEMA_VERSION
+        )
 
 
 def test_v6_version_bump_waits_for_successful_lineage_migration(
@@ -111,7 +114,10 @@ def test_v6_version_bump_waits_for_successful_lineage_migration(
         original_migration,
     )
     with SQLiteCanonicalStore(path) as upgraded:
-        assert int(upgraded.db.execute("PRAGMA user_version").fetchone()[0]) == 6
+        assert (
+            int(upgraded.db.execute("PRAGMA user_version").fetchone()[0])
+            == schema_module.SCHEMA_VERSION
+        )
         assert upgraded.projection_is_stale(projection_id)
         assert (
             upgraded.projection_stale_reason(projection_id)

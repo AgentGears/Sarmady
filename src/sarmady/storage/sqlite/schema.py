@@ -6,12 +6,12 @@ from uuid import NAMESPACE_URL, uuid5
 from sarmady.memory import MemoryLifecycleEventKind
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def initialize_schema(db: sqlite3.Connection) -> None:
     version = int(db.execute("PRAGMA user_version").fetchone()[0])
-    if version not in {0, 1, 2, 3, 4, 5, SCHEMA_VERSION}:
+    if version not in {0, 1, 2, 3, 4, 5, 6, SCHEMA_VERSION}:
         raise RuntimeError(
             f"unsupported Sarmady SQLite schema version {version}; "
             f"expected <= {SCHEMA_VERSION}"
@@ -21,6 +21,7 @@ def initialize_schema(db: sqlite3.Connection) -> None:
     # backwards-compatible JSON encoding inside coverage_requirements_json.
     # v6 adds no columns; it establishes conservative lineage semantics for
     # projections created before dependency capture could prove completeness.
+    # v7 adds durable context-need decisions and parent/child request lineage.
     # The schema version is deliberately advanced only after every migration
     # succeeds. If migration is interrupted, the prior version remains durable
     # and the idempotent migration is retried on the next open.
@@ -206,6 +207,34 @@ def initialize_schema(db: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_generated_artifacts_invocation
             ON generated_artifacts(invocation_id);
+
+        CREATE TABLE IF NOT EXISTS context_need_decisions (
+            id TEXT PRIMARY KEY,
+            context_need_artifact_id TEXT NOT NULL UNIQUE
+                REFERENCES generated_artifacts(id),
+            decision TEXT NOT NULL CHECK(decision IN ('ACCEPTED', 'REJECTED')),
+            decided_at TEXT NOT NULL,
+            reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+            decision_source TEXT NOT NULL CHECK(length(trim(decision_source)) > 0),
+            parent_invocation_id TEXT NOT NULL REFERENCES model_invocations(id),
+            parent_cognitive_request_id TEXT NOT NULL REFERENCES cognitive_requests(id),
+            parent_context_projection_id TEXT NOT NULL REFERENCES context_projections(id),
+            parent_context_request_id TEXT NOT NULL REFERENCES context_requests(id),
+            child_context_request_id TEXT REFERENCES context_requests(id),
+            CHECK(
+                (decision = 'ACCEPTED' AND child_context_request_id IS NOT NULL)
+                OR (decision = 'REJECTED' AND child_context_request_id IS NULL)
+            ),
+            CHECK(
+                child_context_request_id IS NULL
+                OR child_context_request_id <> parent_context_request_id
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_context_need_decisions_parent_request
+            ON context_need_decisions(parent_context_request_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_decisions_child_request
+            ON context_need_decisions(child_context_request_id)
+            WHERE child_context_request_id IS NOT NULL;
         """
     )
     _backfill_legacy_memory_created_events(db)

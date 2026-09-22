@@ -11,6 +11,7 @@ from weakref import WeakKeyDictionary
 
 from ._codec import iso
 from .cognitive_store import CognitiveStoreMixin
+from .context_need_store import ContextNeedStoreMixin
 from .epistemic_store import EpistemicStoreMixin
 from .identity_store import IdentityStoreMixin
 from .memory_store import MemoryStoreMixin
@@ -160,6 +161,7 @@ class SQLiteCanonicalStore(
     ProjectionStoreMixin,
     ReasoningStoreMixin,
     CognitiveStoreMixin,
+    ContextNeedStoreMixin,
 ):
     """SQLite adapter for Sarmady's canonical semantic and cognitive state."""
 

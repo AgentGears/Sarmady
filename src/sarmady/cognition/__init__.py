@@ -1,3 +1,4 @@
+from .context_need import ContextNeedDecision, ContextNeedDecisionKind
 from .models import (
     CONTEXT_NEED_ARTIFACT_KIND,
     ChoiceCandidate,
@@ -25,6 +26,8 @@ __all__ = [
     "ModelInvocation",
     "GeneratedArtifact",
     "ContextNeedProposal",
+    "ContextNeedDecision",
+    "ContextNeedDecisionKind",
     "CONTEXT_NEED_ARTIFACT_KIND",
     "serialize_context_need_proposal",
     "deserialize_context_need_proposal",
