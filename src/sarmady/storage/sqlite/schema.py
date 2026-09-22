@@ -214,8 +214,8 @@ def initialize_schema(db: sqlite3.Connection) -> None:
                 REFERENCES generated_artifacts(id),
             decision TEXT NOT NULL CHECK(decision IN ('ACCEPTED', 'REJECTED')),
             decided_at TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            decision_source TEXT NOT NULL,
+            reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+            decision_source TEXT NOT NULL CHECK(length(trim(decision_source)) > 0),
             parent_invocation_id TEXT NOT NULL REFERENCES model_invocations(id),
             parent_cognitive_request_id TEXT NOT NULL REFERENCES cognitive_requests(id),
             parent_context_projection_id TEXT NOT NULL REFERENCES context_projections(id),
@@ -224,12 +224,17 @@ def initialize_schema(db: sqlite3.Connection) -> None:
             CHECK(
                 (decision = 'ACCEPTED' AND child_context_request_id IS NOT NULL)
                 OR (decision = 'REJECTED' AND child_context_request_id IS NULL)
+            ),
+            CHECK(
+                child_context_request_id IS NULL
+                OR child_context_request_id <> parent_context_request_id
             )
         );
         CREATE INDEX IF NOT EXISTS idx_context_need_decisions_parent_request
             ON context_need_decisions(parent_context_request_id);
-        CREATE INDEX IF NOT EXISTS idx_context_need_decisions_child_request
-            ON context_need_decisions(child_context_request_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_need_decisions_child_request
+            ON context_need_decisions(child_context_request_id)
+            WHERE child_context_request_id IS NOT NULL;
         """
     )
     _backfill_legacy_memory_created_events(db)
