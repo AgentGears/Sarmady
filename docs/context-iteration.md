@@ -1,6 +1,6 @@
 # Context-Need Proposal Contract v0.1
 
-This document establishes the first executable boundary for iterative context acquisition during cognition without granting a model retrieval authority.
+This document establishes the first executable boundary for iterative context acquisition during cognition without granting a model retrieval authority. The companion `docs/context-fulfillment.md` defines the later host decision and bounded child-request creation boundary.
 
 ## Forcing function
 
@@ -60,7 +60,7 @@ StepModelAdapter
       +----> ContextNeedProposal ---> GeneratedArtifact(kind=context-need:v1)
                                       |
                                       v
-                              future governed fulfillment
+                              governed decision boundary
 ```
 
 `invoke_step()` does not itself perform the final arrow.
@@ -75,13 +75,13 @@ The proposal is serialized into a canonical versioned JSON payload inside the ex
 
 Durable recording matters because a process can fail after the model has emitted a need but before a host decides whether or how to fulfill it. The proposal can be inspected after restart without pretending that a follow-up request was already authorized.
 
-Strict kind/payload validation is not an authenticity primitive. A caller that constructs an arbitrary `GeneratedArtifact` in memory has not thereby proven that the artifact came from Sarmady's trusted runtime/store path. Future fulfillment logic must establish provenance before treating a proposal as eligible input.
+Strict kind/payload validation is not an authenticity primitive. A caller that constructs an arbitrary `GeneratedArtifact` in memory has not thereby proven that the artifact came from Sarmady's trusted runtime/store path. Fulfillment logic must establish persisted provenance before treating a proposal as eligible input.
 
 ## Authority boundary
 
 A persisted context need is still model output. It is not canonical epistemic truth and it is not an executable request.
 
-The runtime therefore does not automatically:
+The cognitive runtime therefore does not automatically:
 
 - create a new `ContextRequest`;
 - run candidate generation;
@@ -93,6 +93,23 @@ The runtime therefore does not automatically:
 
 This preserves the constitutional rule that model output may propose but does not govern semantic or execution transitions by itself.
 
+## Companion governed-decision boundary
+
+The subsequent M2 slice now provides `ContextNeedDecision` and `ContextNeedCoordinator`. A host caller may explicitly reject the persisted proposal or accept it and create one fresh child `ContextRequest` after the store revalidates full persisted lineage and source-projection freshness. That acceptance is a separate operation from `invoke_step()` and does not retroactively grant authority to the model output.
+
+The decision boundary deliberately preserves:
+
+```text
+ContextNeedProposal
+    != ContextNeedDecision
+    != ContextRequest
+    != retrieval / planning
+    != ContextProjection
+    != permission to continue
+```
+
+See `docs/context-fulfillment.md` for its provenance, atomicity, resource-bound, and claim-ceiling rules.
+
 ## Backward compatibility
 
 The existing `CognitiveRuntime.invoke()` contract remains terminal-only and continues to require `ModelResponse`. Existing adapters and callers are unchanged.
@@ -103,26 +120,27 @@ The existing `CognitiveRuntime.invoke()` contract remains terminal-only and cont
 
 A valid context-need proposal completes the `ModelInvocation` successfully because the provider/model call itself succeeded and returned a recognized cognitive outcome. Malformed or unsupported step outputs fail the invocation using the same durable terminal failure semantics as malformed terminal adapter responses.
 
+The later host decision is separately durable. A failed acceptance transaction leaves neither a decision nor a partially created child request.
+
 ## Deliberate limitations
 
-This slice does not yet implement a full iterative reasoning loop. In particular it does not define:
+Sarmady still does not implement a full iterative reasoning loop. In particular the current combined proposal + decision slices do not define:
 
-- who is allowed to accept or reject a context need;
-- how a proposal becomes a request-bound `ContextRequest`;
-- parent/child lineage across context requests, projections, cognitive requests, and invocations;
+- principal-bound authorization for who is allowed to accept or reject a context need;
+- how an accepted child request automatically invokes retrieval or requirement planning;
 - how a new projection is combined with or replaces the previous projection;
-- remaining-budget accounting across steps;
+- cumulative remaining-budget accounting across steps;
 - loop/step limits or repeated-need detection;
 - current-frontier revalidation immediately before each continuation;
 - automatic fulfillment of ambiguous or abstained requirement plans;
 - provider-specific streaming/tool-call representations of a context need.
 
-Those are the next control boundaries required before Sarmady can claim general iterative context acquisition during reasoning.
+Those are later control boundaries required before Sarmady can claim general iterative context acquisition during reasoning.
 
 ## Governing invariant
 
 ```text
-ContextNeedProposal != ContextRequest != ContextProjection != permission to continue
+ContextNeedProposal != ContextNeedDecision != ContextRequest != ContextProjection != permission to continue
 ```
 
-The purpose of v0.1 is to make the first transition explicit rather than smuggling it through generated text.
+The purpose of the proposal contract is to make the first transition explicit rather than smuggling it through generated text; the companion decision contract makes the next transition explicit without collapsing it into retrieval or continuation.
