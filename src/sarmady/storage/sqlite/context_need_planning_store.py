@@ -92,6 +92,29 @@ class ContextNeedPlanningStoreMixin:
                 raise ValueError("accepted context-need child must not already have exact requirements")
 
             self._validate_context_need_plan_in_tx(receipt.plan, source_request)
+            frontier = int(receipt.plan.canonical_frontier)
+            duplicate = self.db.execute(
+                """
+                SELECT id
+                FROM context_need_planning_receipts
+                WHERE context_need_decision_id = ?
+                  AND candidate_frontier = ?
+                  AND candidate_limit = ?
+                  AND candidate_generator_version = ?
+                  AND planner_version = ?
+                """,
+                (
+                    str(receipt.context_need_decision_id),
+                    frontier,
+                    receipt.candidate_limit,
+                    receipt.plan.candidate_generator_version,
+                    receipt.plan.planner_version,
+                ),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValueError(
+                    "context need planning attempt already recorded for this frontier and configuration"
+                )
 
             if resolved:
                 assert derived_request is not None
@@ -107,12 +130,12 @@ class ContextNeedPlanningStoreMixin:
                 INSERT INTO context_need_planning_receipts(
                     id, context_need_decision_id, planned_at,
                     source_context_request_id, source_request_fingerprint,
-                    candidate_snapshot_id, candidate_frontier,
+                    candidate_snapshot_id, candidate_frontier, candidate_limit,
                     candidate_generator_version, planner_version, status,
                     exact_requirements_json, selected_candidate_claim_ids_json,
                     ambiguous_candidate_claim_ids_json, reasons_json,
                     derived_context_request_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(receipt.id),
@@ -121,7 +144,8 @@ class ContextNeedPlanningStoreMixin:
                     str(receipt.plan.source_request_id),
                     receipt.plan.source_request_fingerprint,
                     receipt.plan.candidate_snapshot_id,
-                    int(receipt.plan.canonical_frontier),
+                    frontier,
+                    receipt.candidate_limit,
                     receipt.plan.candidate_generator_version,
                     receipt.plan.planner_version,
                     receipt.plan.status.value,
@@ -394,6 +418,7 @@ class ContextNeedPlanningStoreMixin:
             context_need_decision_id=UUID(row["context_need_decision_id"]),
             planned_at=datetime.fromisoformat(row["planned_at"]),
             plan=plan,
+            candidate_limit=int(row["candidate_limit"]),
             derived_context_request_id=(
                 UUID(row["derived_context_request_id"])
                 if row["derived_context_request_id"] is not None
@@ -423,5 +448,6 @@ class ContextNeedPlanningStoreMixin:
             context_need_decision_id=receipt.context_need_decision_id,
             planned_at=receipt.planned_at,
             plan=plan,
+            candidate_limit=receipt.candidate_limit,
             derived_context_request_id=receipt.derived_context_request_id,
         )
