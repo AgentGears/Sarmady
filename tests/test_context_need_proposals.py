@@ -18,6 +18,7 @@ from sarmady.epistemic.service import EpistemicMemoryService
 from sarmady.kernel import Agent
 from sarmady.runtime import (
     CognitiveRuntime,
+    CognitiveStepResult,
     CognitiveStepStatus,
     ModelInput,
     ModelResponse,
@@ -100,6 +101,14 @@ def test_context_need_proposal_round_trips_with_strict_versioned_payload() -> No
     assert serialize_context_need_proposal(deserialize_context_need_proposal(content)) == content
 
 
+def test_context_need_serialization_revalidates_frozen_value_at_durable_boundary() -> None:
+    proposal = ContextNeedProposal("os", "needed")
+    object.__setattr__(proposal, "query", 42)
+
+    with pytest.raises(ValueError, match="query is required"):
+        serialize_context_need_proposal(proposal)
+
+
 def test_context_need_proposal_rejects_ambiguous_or_malformed_contracts() -> None:
     with pytest.raises(ValueError, match="query is required"):
         ContextNeedProposal(" ", "needed")
@@ -117,6 +126,11 @@ def test_context_need_proposal_rejects_ambiguous_or_malformed_contracts() -> Non
         deserialize_context_need_proposal(
             '{"contract":"ContextNeedProposal:v2","query":"os","reason":"needed","coverage_requirements":[]}'
         )
+
+
+def test_terminal_model_response_cannot_claim_reserved_context_need_kind() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        ModelResponse(CONTEXT_NEED_ARTIFACT_KIND, "{}")
 
 
 def test_invoke_step_persists_context_need_without_creating_context_authority(tmp_path) -> None:
@@ -209,6 +223,49 @@ def test_invoke_step_records_malformed_adapter_output_as_terminal_failure(tmp_pa
         assert invocations[0].completed_at is not None
         assert invocations[0].error_code == "adapter-error:TypeError"
         assert store.db.execute("SELECT COUNT(*) FROM generated_artifacts").fetchone()[0] == 0
+
+
+def test_mutated_context_need_output_fails_invocation_before_artifact_persistence(tmp_path) -> None:
+    path = tmp_path / "sarmady.db"
+    proposal = ContextNeedProposal("os", "needed")
+    object.__setattr__(proposal, "reason", 7)
+
+    with SQLiteCanonicalStore(path) as store:
+        agent, projection = _seed_agent_projection(store)
+
+        with pytest.raises(ValueError, match="reason is required"):
+            CognitiveRuntime(
+                store,
+                clock=lambda: T0 + timedelta(minutes=1),
+            ).invoke_step(
+                agent_id=agent.id,
+                context_projection_id=projection.id,
+                operation="answer-machine-question",
+                adapter=NeedAdapter(proposal),
+            )
+
+        invocation = store.invocations_for_agent(agent.id)[0]
+        assert invocation.error_code == "adapter-error:ValueError"
+        assert store.db.execute("SELECT COUNT(*) FROM generated_artifacts").fetchone()[0] == 0
+
+
+def test_cognitive_step_result_rejects_mismatched_proposal_and_artifact() -> None:
+    proposal = ContextNeedProposal("os", "needed")
+    other = ContextNeedProposal("kernel", "needed")
+    artifact = GeneratedArtifact(
+        id=uuid4(),
+        invocation_id=uuid4(),
+        artifact_kind=CONTEXT_NEED_ARTIFACT_KIND,
+        content=serialize_context_need_proposal(proposal),
+        created_at=T0,
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        CognitiveStepResult(
+            status=CognitiveStepStatus.NEEDS_CONTEXT,
+            artifact=artifact,
+            context_need=other,
+        )
 
 
 def test_context_need_artifact_rehydration_rejects_wrong_kind_and_bad_payload() -> None:

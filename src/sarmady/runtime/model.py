@@ -72,6 +72,10 @@ class ModelResponse:
     def __post_init__(self) -> None:
         if not isinstance(self.artifact_kind, str) or not self.artifact_kind.strip():
             raise ValueError("artifact_kind is required")
+        if self.artifact_kind == CONTEXT_NEED_ARTIFACT_KIND:
+            raise ValueError(
+                "context-need:v1 is reserved for typed ContextNeedProposal outcomes"
+            )
         if not isinstance(self.content, str):
             raise TypeError("model response content must be a string")
 
@@ -114,12 +118,31 @@ class CognitiveStepResult:
         if self.status is CognitiveStepStatus.COMPLETED:
             if self.context_need is not None:
                 raise ValueError("completed cognitive step cannot carry a context need")
-        elif self.context_need is None:
-            raise ValueError("context-needing cognitive step requires a ContextNeedProposal")
+            if self.artifact.artifact_kind == CONTEXT_NEED_ARTIFACT_KIND:
+                raise ValueError(
+                    "completed cognitive step cannot carry a context-need artifact"
+                )
+            return
+        if not isinstance(self.context_need, ContextNeedProposal):
+            raise TypeError(
+                "context-needing cognitive step requires a ContextNeedProposal"
+            )
+        if self.artifact.artifact_kind != CONTEXT_NEED_ARTIFACT_KIND:
+            raise ValueError(
+                "context-needing cognitive step requires a context-need artifact"
+            )
+        if deserialize_context_need_proposal(self.artifact.content) != self.context_need:
+            raise ValueError(
+                "context-needing cognitive step artifact does not match its proposal"
+            )
 
 
 def context_need_from_artifact(artifact: GeneratedArtifact) -> ContextNeedProposal:
-    """Rehydrate a typed context need from its durable generated artifact."""
+    """Rehydrate a typed context need from a versioned generated artifact.
+
+    This validates kind and payload shape; it does not authenticate that the
+    artifact came from a trusted store/runtime path.
+    """
 
     if not isinstance(artifact, GeneratedArtifact):
         raise TypeError("artifact must be GeneratedArtifact")
@@ -218,15 +241,17 @@ class CognitiveRuntime:
                     artifact=artifact,
                 )
             if isinstance(response, ContextNeedProposal):
+                content = serialize_context_need_proposal(response)
+                normalized = deserialize_context_need_proposal(content)
                 artifact = self._complete_artifact(
                     invocation,
                     artifact_kind=CONTEXT_NEED_ARTIFACT_KIND,
-                    content=serialize_context_need_proposal(response),
+                    content=content,
                 )
                 return CognitiveStepResult(
                     status=CognitiveStepStatus.NEEDS_CONTEXT,
                     artifact=artifact,
-                    context_need=response,
+                    context_need=normalized,
                 )
             raise TypeError(
                 "step model adapter must return ModelResponse or ContextNeedProposal"

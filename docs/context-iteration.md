@@ -65,13 +65,17 @@ StepModelAdapter
 
 `invoke_step()` does not itself perform the final arrow.
 
+The `context-need:v1` artifact kind is reserved for the typed proposal path. A terminal `ModelResponse` cannot claim that kind and thereby smuggle ordinary text into the structured continuation channel.
+
 ## Durability and replay
 
 The proposal is serialized into a canonical versioned JSON payload inside the existing non-authoritative `GeneratedArtifact` record. This avoids introducing a second truth store or a new canonical table merely to retain a model-produced proposal.
 
-`context_need_from_artifact()` strictly rehydrates only `context-need:v1` artifacts. The payload contract is exact: unexpected fields or an unsupported contract version are rejected rather than silently interpreted.
+`context_need_from_artifact()` strictly rehydrates only `context-need:v1` artifacts. The payload contract is exact: unexpected fields or an unsupported contract version are rejected rather than silently interpreted. Serialization reconstructs the proposal through its public constructor so post-construction mutation of a frozen dataclass cannot bypass the durable validation boundary.
 
 Durable recording matters because a process can fail after the model has emitted a need but before a host decides whether or how to fulfill it. The proposal can be inspected after restart without pretending that a follow-up request was already authorized.
+
+Strict kind/payload validation is not an authenticity primitive. A caller that constructs an arbitrary `GeneratedArtifact` in memory has not thereby proven that the artifact came from Sarmady's trusted runtime/store path. Future fulfillment logic must establish provenance before treating a proposal as eligible input.
 
 ## Authority boundary
 

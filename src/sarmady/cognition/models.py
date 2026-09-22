@@ -101,16 +101,26 @@ class ContextNeedProposal:
 
 
 def serialize_context_need_proposal(proposal: ContextNeedProposal) -> str:
-    """Serialize a context-need proposal into the durable v1 artifact payload."""
+    """Serialize a context-need proposal into the durable v1 artifact payload.
+
+    Reconstructing through the public constructor revalidates the value at the
+    durable serialization boundary, including against post-construction
+    ``object.__setattr__`` mutation of a frozen dataclass.
+    """
 
     if not isinstance(proposal, ContextNeedProposal):
         raise TypeError("proposal must be ContextNeedProposal")
+    snapshot = ContextNeedProposal(
+        query=proposal.query,
+        reason=proposal.reason,
+        coverage_requirements=proposal.coverage_requirements,
+    )
     return json.dumps(
         {
             "contract": _CONTEXT_NEED_CONTRACT,
-            "query": proposal.query,
-            "reason": proposal.reason,
-            "coverage_requirements": list(proposal.coverage_requirements),
+            "query": snapshot.query,
+            "reason": snapshot.reason,
+            "coverage_requirements": list(snapshot.coverage_requirements),
         },
         ensure_ascii=False,
         sort_keys=True,
