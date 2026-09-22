@@ -93,27 +93,36 @@ class ContextNeedPlanningStoreMixin:
 
             self._validate_context_need_plan_in_tx(receipt.plan, source_request)
             frontier = int(receipt.plan.canonical_frontier)
-            duplicate = self.db.execute(
+
+            # A raw semantic frontier can advance for SEEN/USED memory telemetry,
+            # even though that telemetry is intentionally excluded from planning
+            # freshness because it cannot change candidate eligibility. Treat an
+            # existing non-stale receipt with the same host planning configuration
+            # as the retry owner across such frontier-only telemetry movement.
+            # Replanning becomes eligible only after a relevant semantic/memory
+            # change makes every prior same-configuration receipt stale.
+            current_attempts = self.db.execute(
                 """
-                SELECT id
+                SELECT candidate_frontier
                 FROM context_need_planning_receipts
                 WHERE context_need_decision_id = ?
-                  AND candidate_frontier = ?
                   AND candidate_limit = ?
                   AND candidate_generator_version = ?
                   AND planner_version = ?
                 """,
                 (
                     str(receipt.context_need_decision_id),
-                    frontier,
                     receipt.candidate_limit,
                     receipt.plan.candidate_generator_version,
                     receipt.plan.planner_version,
                 ),
-            ).fetchone()
-            if duplicate is not None:
+            ).fetchall()
+            if any(
+                not self._dependency_keys_changed_since(int(row["candidate_frontier"]))
+                for row in current_attempts
+            ):
                 raise ValueError(
-                    "context need planning attempt already recorded for this frontier and configuration"
+                    "current context need planning attempt already recorded for this configuration"
                 )
 
             if resolved:
