@@ -45,6 +45,10 @@ class ContextNeedPlanningReceipt:
         _require_aware(self.planned_at, "planned_at")
         if not isinstance(self.plan, RequirementPlan):
             raise TypeError("context need planning receipt requires RequirementPlan")
+        _require_uuid(
+            self.plan.source_request_id,
+            "context need planning receipt source request id",
+        )
         if self.derived_context_request_id is not None:
             _require_uuid(
                 self.derived_context_request_id,
